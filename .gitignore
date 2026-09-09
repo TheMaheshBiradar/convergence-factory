@@ -1,11 +1,10 @@
 __pycache__/
 *.pyc
 .DS_Store
-.factory/
+.factory*/
 *.db
 .venv/
 dist/
 build/
 *.egg-info/
-.factory_github/
-benchmarks/estate/
+benchmarks/
