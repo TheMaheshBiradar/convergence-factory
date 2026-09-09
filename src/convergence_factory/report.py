@@ -1,9 +1,8 @@
 """M1.6 — the redundancy map.
 
-Renders a self-contained static site (what would be published to GitLab Pages).
-Production swaps the front-end for the TypeScript app in report/; this generator
-proves the output and is what the pipeline emits today. Every row is confidence-
-tiered, and the tier filter is the same pipeline serving three audiences:
+Renders a self-contained interactive static site (what would be published to GitLab Pages).
+Includes interactive capability filtering, search, and Mermaid.js wiring topology.
+Every row is confidence-tiered, serving three audiences:
 exec (HIGH only), prioritization (+MED), exploratory (all).
 """
 from __future__ import annotations
@@ -19,6 +18,38 @@ _TIER_LABEL = {"HIGH": "high", "MED": "med", "LOW": "low"}
 
 def _esc(s) -> str:
     return html.escape(str(s))
+
+
+def generate_mermaid_diagram(store: Store, clusters: List[dict]) -> str:
+    """Generates Mermaid.js flow diagram representing resource wiring and modules."""
+    lines = ["graph LR"]
+    module_name = {m.id: m.name for m in store.modules()}
+    facts = store.integration_facts()
+    nodes_added = set()
+
+    for f in facts:
+        mod_safe = f.module_id.replace(":", "_").replace("-", "_").replace(".", "_")
+        mod_label = module_name.get(f.module_id, f.module_id)
+        if mod_safe not in nodes_added:
+            lines.append(f'  {mod_safe}["{mod_label}"]')
+            nodes_added.add(mod_safe)
+
+        res_safe = f"{f.resource_type}_{f.resource_id}".replace(".", "_").replace("-", "_").replace("/", "_")
+        if res_safe not in nodes_added:
+            if f.resource_type == "KAFKA_TOPIC":
+                lines.append(f'  {res_safe}(("{f.resource_id}"))')
+            elif f.resource_type == "SQL_TABLE":
+                lines.append(f'  {res_safe}[("{f.resource_id}")]')
+            else:
+                lines.append(f'  {res_safe}["{f.resource_id}"]')
+            nodes_added.add(res_safe)
+
+        if f.direction in ("PRODUCES", "WRITES"):
+            lines.append(f"  {mod_safe} -->|{f.direction.lower()}| {res_safe}")
+        else:
+            lines.append(f"  {res_safe} -->|{f.direction.lower()}| {mod_safe}")
+
+    return "\n".join(lines)
 
 
 def render(store: Store, graph: dict, candidates: List[dict], out_dir: str) -> dict:
@@ -39,13 +70,14 @@ def render(store: Store, graph: dict, candidates: List[dict], out_dir: str) -> d
         shared = ", ".join(f"{_esc(rid)}" for _rt, rid in c["shared"])
         mix = " ".join(f'<span class="tier t-{_TIER_LABEL[t]}">{t}</span>' for t in c["tier_mix"])
         coupling_disp = "&mdash;" if c["coupling"] is None else f"{c['coupling']}"
+        play_class = c['play'].lower()
         rows.append(f"""
-      <tr data-tier="{_TIER_LABEL[c['tier']]}">
+      <tr data-tier="{_TIER_LABEL[c['tier']]}" data-play="{c['play']}">
         <td class="rank">{i}</td>
         <td><b>{_esc(c['label'])}</b><div class="shared">{shared}</div></td>
         <td>{member_html(c['members'])}</td>
         <td>{_esc(len(c['owners']))} team{'s' if len(c['owners'])!=1 else ''}<div class="shared">{_esc(', '.join(c['owners']))}</div></td>
-        <td><span class="play p-{c['play'].lower()}">{c['play']}</span></td>
+        <td><span class="play p-{play_class}">{c['play']}</span></td>
         <td>{mix}</td>
         <td class="num">{coupling_disp}</td>
         <td class="num">{c['opportunity']}</td>
@@ -60,12 +92,15 @@ def render(store: Store, graph: dict, candidates: List[dict], out_dir: str) -> d
         <td><span class="tier t-{_TIER_LABEL[c['tier']]}">{c['tier']}</span></td>
       </tr>""")
 
+    mermaid_graph = generate_mermaid_diagram(store, clusters)
+
     doc = _TEMPLATE.format(
         projects=counts["projects"], modules=counts["modules"],
         facts=counts["integration_facts"], gaps=counts["gaps"],
         resolution=f"{resolution:.0f}", clusters=len(clusters),
         cluster_rows="".join(rows) or '<tr><td colspan="8">No duplicate clusters found.</td></tr>',
         cand_rows="".join(cand_rows) or '<tr><td colspan="3">No candidates above threshold.</td></tr>',
+        mermaid_graph=mermaid_graph,
     )
     site = os.path.join(out_dir, "site")
     os.makedirs(site, exist_ok=True)
@@ -78,7 +113,11 @@ def render(store: Store, graph: dict, candidates: List[dict], out_dir: str) -> d
 
 _TEMPLATE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Redundancy Map</title>
+<title>Redundancy Map · Convergence Factory</title>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({{ startOnLoad: true, theme: 'neutral' }});
+</script>
 <style>
   :root{{--bg:#F3F5F8;--surface:#fff;--surface2:#EAEEF3;--ink:#15202C;--muted:#5C6A78;
     --line:#D3DBE3;--accent:#B5561C;--high:#1F4E6B;--med:#4E7E9C;--low:#93A9B8;
@@ -88,7 +127,7 @@ _TEMPLATE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
   *{{box-sizing:border-box}}
   body{{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.6;
     padding:clamp(1rem,4vw,3rem)}}
-  .wrap{{max-width:1080px;margin:0 auto}}
+  .wrap{{max-width:1120px;margin:0 auto}}
   h1{{font-size:clamp(1.7rem,4vw,2.4rem);margin:0 0 .2rem;letter-spacing:-.02em}}
   h1 span{{color:var(--accent)}}
   .sub{{color:var(--muted);margin:0 0 1.8rem;font-size:.95rem}}
@@ -99,10 +138,14 @@ _TEMPLATE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
   .metrics .k{{font-family:var(--mono);font-size:.62rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}}
   @media(max-width:720px){{.metrics{{grid-template-columns:repeat(2,1fr)}}}}
   h2{{font-size:1.15rem;margin:2.2rem 0 .3rem}}
-  .filters{{display:flex;gap:.5rem;margin:.8rem 0}}
+  .controls{{display:flex;gap:1rem;margin:.8rem 0;flex-wrap:wrap;align-items:center;justify-content:space-between}}
+  .filters{{display:flex;gap:.5rem;flex-wrap:wrap}}
   .filters button{{font-family:var(--mono);font-size:.72rem;padding:.35rem .8rem;border-radius:20px;
     border:1px solid var(--line);background:var(--surface);color:var(--muted);cursor:pointer}}
   .filters button.on{{background:var(--accent);color:#fff;border-color:var(--accent)}}
+  .search-box{{flex:1;max-width:320px;min-width:200px}}
+  .search-box input{{width:100%;padding:.4rem .8rem;font-family:var(--sans);font-size:.85rem;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink)}}
+  .graph-card{{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:1.5rem;overflow-x:auto;margin-top:.8rem}}
   table{{width:100%;border-collapse:collapse;font-size:.88rem;background:var(--surface);
     border:1px solid var(--line);border-radius:10px;overflow:hidden}}
   th,td{{text-align:left;padding:.65rem .8rem;border-bottom:1px solid var(--line);vertical-align:top}}
@@ -123,7 +166,7 @@ _TEMPLATE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
   footer{{margin-top:2.5rem;color:var(--muted);font-family:var(--mono);font-size:.72rem}}
 </style></head><body><div class="wrap">
   <h1>Redundancy <span>Map</span></h1>
-  <p class="sub">Convergence Factory · Phase 1 output. Every signal is confidence-tiered — filter to the audience.</p>
+  <p class="sub">Convergence Factory · Layered evidence pipeline & redundancy topology.</p>
   <div class="metrics">
     <div><div class="v">{projects}</div><div class="k">Projects</div></div>
     <div><div class="v">{modules}</div><div class="k">Modules</div></div>
@@ -132,16 +175,28 @@ _TEMPLATE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
     <div><div class="v">{resolution}%</div><div class="k">Resolution rate</div></div>
   </div>
 
-  <h2>Convergence opportunities</h2>
-  <div class="filters">
-    <button data-f="high" class="on">Exec · HIGH</button>
-    <button data-f="med">Prioritization · +MED</button>
-    <button data-f="all">Exploratory · all</button>
+  <h2>Integration Topology & Wiring Graph</h2>
+  <div class="graph-card">
+    <pre class="mermaid">
+{mermaid_graph}
+    </pre>
+  </div>
+
+  <h2>Convergence Opportunities</h2>
+  <div class="controls">
+    <div class="filters">
+      <button data-f="high" class="on">Exec · HIGH</button>
+      <button data-f="med">Prioritization · +MED</button>
+      <button data-f="all">Exploratory · all</button>
+    </div>
+    <div class="search-box">
+      <input type="text" id="filterSearch" placeholder="Search clusters, resources, teams..." />
+    </div>
   </div>
   <table id="clusters"><thead><tr><th>#</th><th>Capability</th><th>Members</th><th>Ownership</th><th>Play</th><th>Confidence</th><th>Coupling</th><th>Opportunity</th></tr></thead>
   <tbody>{cluster_rows}</tbody></table>
 
-  <h2>Semantic candidates <span style="font-weight:400;color:var(--muted);font-size:.8rem">— recall only, unconfirmed</span></h2>
+  <h2>Semantic Candidates <span style="font-weight:400;color:var(--muted);font-size:.8rem">— recall only, unconfirmed</span></h2>
   <table><thead><tr><th>Module pair</th><th>Similarity</th><th>Tier</th></tr></thead>
   <tbody>{cand_rows}</tbody></table>
 
@@ -150,18 +205,32 @@ _TEMPLATE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 </div>
 <script>
   var order={{all:['high','med','low'],med:['high','med'],high:['high']}};
-  function apply(f){{
-    var allow=order[f];
+  var currentFilter = 'high';
+  var searchInput = document.getElementById('filterSearch');
+
+  function updateView(){{
+    var allow = order[currentFilter];
+    var q = searchInput.value.toLowerCase().trim();
     document.querySelectorAll('#clusters tbody tr').forEach(function(tr){{
-      tr.style.display = allow.indexOf(tr.dataset.tier)>=0 ? '' : 'none';
-    }});
-    document.querySelectorAll('.filters button').forEach(function(b){{
-      b.classList.toggle('on', b.dataset.f===f);
+      var matchesTier = allow.indexOf(tr.dataset.tier) >= 0;
+      var matchesText = !q || tr.innerText.toLowerCase().indexOf(q) >= 0;
+      tr.style.display = (matchesTier && matchesText) ? '' : 'none';
     }});
   }}
+
   document.querySelectorAll('.filters button').forEach(function(b){{
-    b.addEventListener('click', function(){{apply(b.dataset.f);}});
+    b.addEventListener('click', function(){{
+      currentFilter = b.dataset.f;
+      document.querySelectorAll('.filters button').forEach(function(btn){{
+        btn.classList.toggle('on', btn === b);
+      }});
+      updateView();
+    }});
   }});
-  apply('high');
+
+  if(searchInput){{
+    searchInput.addEventListener('input', updateView);
+  }}
+  updateView();
 </script>
 </body></html>"""
