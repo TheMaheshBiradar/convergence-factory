@@ -14,6 +14,7 @@ from . import census as census_mod
 from . import graph as graph_mod
 from . import ratchet as ratchet_mod
 from . import report as report_mod
+from .clone_probe import detect_clones
 from .connectors.gitlab import parse_inventory
 import json
 from .eval import format_report
@@ -58,6 +59,10 @@ def cmd_run(args):
             totals[k] += st[k]
     print(f"  modules={totals['modules']} integration={totals['integration']} "
           f"deps={totals['deps']} gaps={totals['gaps']} skipped={totals['skipped']}")
+
+    print("[clones] detecting cross-module code clones")
+    clones = detect_clones(store)
+    print(f"  clones detected={len(clones)}")
 
     print("[graph] building similarity graph + clustering")
     g = graph_mod.build(store)

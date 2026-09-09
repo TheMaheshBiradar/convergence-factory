@@ -13,7 +13,7 @@ from dataclasses import asdict
 from typing import Iterable, List
 
 from .schema import (
-    ApiSurface, CapabilitySummary, Dependency, Gap, IntegrationFact, Module,
+    ApiSurface, CapabilitySummary, ClonePair, Dependency, Gap, IntegrationFact, Module,
     ModuleMetric, Project, Provenance,
 )
 
@@ -38,6 +38,8 @@ CREATE TABLE IF NOT EXISTS gaps (
   module_id TEXT, kind TEXT, expression TEXT, provenance TEXT);
 CREATE TABLE IF NOT EXISTS module_metrics (
   module_id TEXT, name TEXT, value REAL);
+CREATE TABLE IF NOT EXISTS clone_pairs (
+  module_a TEXT, module_b TEXT, clone_type INTEGER, similarity REAL, tier TEXT);
 CREATE TABLE IF NOT EXISTS scan_cache (
   project_id TEXT PRIMARY KEY, content_hash TEXT, last_scanned TEXT);
 """
@@ -122,6 +124,16 @@ class Store:
             (project_id, content_hash))
         self.db.commit()
 
+    def add_clones(self, clones: Iterable[ClonePair]) -> None:
+        self.db.executemany(
+            "INSERT INTO clone_pairs VALUES (?,?,?,?,?)",
+            [(c.module_a, c.module_b, c.clone_type, c.similarity, c.tier) for c in clones])
+        self.db.commit()
+
+    def clone_pairs(self) -> List[ClonePair]:
+        rows = self.db.execute("SELECT * FROM clone_pairs").fetchall()
+        return [ClonePair(r["module_a"], r["module_b"], r["clone_type"], r["similarity"], r["tier"]) for r in rows]
+
     def clear_project(self, project_id: str) -> None:
         """Deletes all modules, facts, metrics, dependencies, APIs, and summaries for a project."""
         mod_rows = self.db.execute("SELECT id FROM modules WHERE project_id = ?", (project_id,)).fetchall()
@@ -130,6 +142,7 @@ class Store:
             placeholders = ",".join("?" for _ in mod_ids)
             for tbl in ("integration_facts", "dependencies", "api_surfaces", "capability_summaries", "gaps", "module_metrics"):
                 self.db.execute(f"DELETE FROM {tbl} WHERE module_id IN ({placeholders})", mod_ids)
+            self.db.execute(f"DELETE FROM clone_pairs WHERE module_a IN ({placeholders}) OR module_b IN ({placeholders})", mod_ids + mod_ids)
         self.db.execute("DELETE FROM modules WHERE project_id = ?", (project_id,))
         self.db.execute("DELETE FROM projects WHERE id = ?", (project_id,))
         self.db.commit()

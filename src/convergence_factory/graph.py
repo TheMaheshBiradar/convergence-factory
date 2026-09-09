@@ -77,6 +77,13 @@ def build(store: Store) -> dict:
                 "resource_type": rtype, "resource_id": rid, "tier": link_tier})
             uf.union(a, b)
 
+    for c in store.clone_pairs():
+        edges.append({
+            "a": c.module_a, "b": c.module_b, "type": f"CLONE_TYPE_{c.clone_type}",
+            "resource_type": "CODE_CLONE", "resource_id": f"clone(T{c.clone_type})",
+            "tier": c.tier})
+        uf.union(c.module_a, c.module_b)
+
     # connected components -> clusters
     comps: Dict[str, list] = defaultdict(list)
     nodes = {n for e in edges for n in (e["a"], e["b"])}
@@ -110,9 +117,10 @@ def build(store: Store) -> dict:
 
 def _play(has_dup: bool, owners: List[str], edges: List[dict]) -> str:
     single_owner = len(owners) == 1
-    if has_dup and single_owner:
+    has_clone = any(e["type"].startswith("CLONE_TYPE_") for e in edges)
+    if (has_dup or has_clone) and single_owner:
         return "RETIRE"          # true duplicate, one team can consolidate
-    if has_dup and not single_owner:
+    if (has_dup or has_clone) and not single_owner:
         return "STANDARDIZE"     # same function across teams -> pick a canonical
     if any(e["type"] == "SHARES_RESOURCE" for e in edges):
         return "EXTRACT"         # shared data/utility -> shared library/service
@@ -120,6 +128,9 @@ def _play(has_dup: bool, owners: List[str], edges: List[dict]) -> str:
 
 
 def _label(edges: List[dict]) -> str:
+    clones = [e for e in edges if e["type"].startswith("CLONE_TYPE_")]
+    if clones:
+        return f"Code clone · {clones[0]['resource_id']}"
     dup_prod = [e for e in edges if e["type"] == "DUP_PRODUCER"]
     dup_write = [e for e in edges if e["type"] == "DUP_WRITER"]
     if dup_prod:

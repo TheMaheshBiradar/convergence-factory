@@ -11,6 +11,7 @@ import os
 from typing import Optional
 
 from convergence_factory import census, graph, report
+from convergence_factory.clone_probe import detect_clones
 from convergence_factory.runner import extract
 from convergence_factory.semantic.probe import recall
 from convergence_factory.store import Store
@@ -54,6 +55,7 @@ def run_pipeline(repos_root: str, out_dir: str, use_cache: bool = True) -> dict:
             extract(store, scan)
             stats["extracted"] += 1
 
+    detect_clones(store)                           # M1.4 code clone detection
     g = graph.build(store)                         # M0.4 + M1.6 graph + cluster
     candidates = recall(store)                     # M1.5 semantic recall
     summary = report.render(store, g, candidates, out_dir)  # M1.6 publish
