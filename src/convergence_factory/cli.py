@@ -33,8 +33,14 @@ DEFAULT_OUT = os.path.join(_REPO_ROOT, ".factory")
 
 
 def cmd_run(args):
+    if getattr(args, "all", False):
+        args.judge = True
+        args.ratchet = True
+        args.rewrite = True
+
     root = args.root or DEFAULT_REPOS
     os.makedirs(args.out, exist_ok=True)
+
     db_path = os.path.join(args.out, "factory.db")
     if os.path.exists(db_path):
         os.remove(db_path)
@@ -253,7 +259,9 @@ def main(argv=None):
     r = sub.add_parser("run", help="full pipeline -> redundancy map")
     r.add_argument("root", nargs="?", default=None)
     r.add_argument("--out", default=DEFAULT_OUT)
+    r.add_argument("--all", action="store_true", help="run everything: pairwise judge, CI/CD ratchets, and rewrite recipes")
     r.add_argument("--judge", action="store_true", help="run pairwise judge to confirm and promote candidates")
+
     r.add_argument("--ratchet", action="store_true", help="generate one-way governance ratchets")
     r.add_argument("--rewrite", action="store_true", help="generate OpenRewrite refactoring recipes")
     r.add_argument("--inventory", default=None, help="path to GitLab inventory JSON")
