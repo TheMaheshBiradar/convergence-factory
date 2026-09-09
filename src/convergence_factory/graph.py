@@ -130,3 +130,54 @@ def _label(edges: List[dict]) -> str:
     kind = "topic" if e["resource_type"] == "KAFKA_TOPIC" else \
         "table" if e["resource_type"] == "SQL_TABLE" else "endpoint"
     return f"Shares {kind} · {e['resource_id']}"
+
+
+def promote_candidates(g: dict, confirmed_candidates: List[dict], store: Store) -> dict:
+    """Promotes confirmed semantic candidate pairs into formal capability clusters.
+    Avoids duplicate clusters if the pair's members are already unified in an
+    existing integration cluster.
+    """
+    clusters = list(g["clusters"])
+    coupling_map = store.metrics_by_name("coupling")
+    existing_pairs = set()
+    for c in clusters:
+        m = c["members"]
+        for i in range(len(m)):
+            for j in range(i + 1, len(m)):
+                existing_pairs.add(tuple(sorted([m[i], m[j]])))
+
+    added = 0
+    for cand in confirmed_candidates:
+        if not cand.get("confirmed"):
+            continue
+        pair = tuple(sorted([cand["a"], cand["b"]]))
+        if pair in existing_pairs:
+            continue
+
+        members = sorted([cand["a"], cand["b"]])
+        owners = cand.get("owners", [])
+        member_coupling = [coupling_map[m] for m in members if m in coupling_map]
+        coupling = round(sum(member_coupling) / len(member_coupling), 3) if member_coupling else None
+        score = 4
+        opportunity = round(score * (1 - (coupling or 0.0)), 2)
+        tier = cand.get("tier", "MED")
+
+        clusters.append({
+            "members": members,
+            "owners": owners,
+            "shared": [("SEMANTIC_CAPABILITY", cand.get("reason", "intent"))],
+            "edges": [],
+            "tier": tier,
+            "tier_mix": [tier],
+            "score": score,
+            "coupling": coupling,
+            "opportunity": opportunity,
+            "play": cand.get("play", "STANDARDIZE"),
+            "label": f"Semantic duplicate · {members[0].split(':')[0]} & {members[1].split(':')[0]}",
+        })
+        existing_pairs.add(pair)
+        added += 1
+
+    clusters.sort(key=lambda c: (-c["opportunity"], -_TIER_RANK[c["tier"]]))
+    return {"clusters": clusters, "edges": g["edges"], "resource_count": g["resource_count"] + added}
+

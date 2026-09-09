@@ -17,6 +17,7 @@ from . import report as report_mod
 from .eval import format_report
 from .eval import run as eval_run
 from .runner import extract
+from .semantic.judge import judge_candidates
 from .semantic.probe import recall
 from .store import Store
 
@@ -57,6 +58,14 @@ def cmd_run(args):
     print("[semantic] recall (candidates only)")
     candidates = recall(store)
     print(f"  candidate pairs={len(candidates)}")
+
+    if getattr(args, "judge", False):
+        print("[judge] running pairwise semantic judge")
+        candidates = judge_candidates(store, candidates)
+        confirmed = [c for c in candidates if c.get("confirmed")]
+        print(f"  confirmed duplicate pairs={len(confirmed)} of {len(candidates)}")
+        g = graph_mod.promote_candidates(g, candidates, store)
+        print(f"  total clusters after promotion={len(g['clusters'])}")
 
     print("[report] rendering redundancy map")
     summary = report_mod.render(store, g, candidates, args.out)
@@ -115,6 +124,28 @@ def cmd_ratchet(args):
     return 0
 
 
+def cmd_judge(args):
+    root = args.root or DEFAULT_REPOS
+    os.makedirs(args.out, exist_ok=True)
+    db_path = os.path.join(args.out, "factory.db")
+    store = Store(db_path)
+    if not os.path.exists(db_path) or len(store.modules()) == 0:
+        for s in census_mod.scan(root):
+            extract(store, s)
+
+    candidates = recall(store)
+    evaluated = judge_candidates(store, candidates)
+    store.close()
+
+    print("\n=== SEMANTIC PAIRWISE JUDGE VERDICTS ===")
+    for c in evaluated:
+        status = "CONFIRMED" if c.get("confirmed") else "REFUTED"
+        print(f"  [{status:<9}] {c['a']:<22} <-> {c['b']:<22} "
+              f"conf={c.get('confidence', 0.0):<4} play={c.get('play', 'LEAVE'):<11}")
+        print(f"               Reason: {c.get('reason', '')}")
+    return 0
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="convergence_factory")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -122,6 +153,7 @@ def main(argv=None):
     r = sub.add_parser("run", help="full pipeline -> redundancy map")
     r.add_argument("root", nargs="?", default=None)
     r.add_argument("--out", default=DEFAULT_OUT)
+    r.add_argument("--judge", action="store_true", help="run pairwise judge to confirm and promote candidates")
     r.set_defaults(func=cmd_run)
 
     c = sub.add_parser("census", help="project manifest only")
@@ -137,6 +169,11 @@ def main(argv=None):
     rt.add_argument("root", nargs="?", default=None)
     rt.add_argument("--out", default=DEFAULT_OUT)
     rt.set_defaults(func=cmd_ratchet)
+
+    j = sub.add_parser("judge", help="evaluate semantic candidates via pairwise judge")
+    j.add_argument("root", nargs="?", default=None)
+    j.add_argument("--out", default=DEFAULT_OUT)
+    j.set_defaults(func=cmd_judge)
 
     args = p.parse_args(argv)
     return args.func(args)
