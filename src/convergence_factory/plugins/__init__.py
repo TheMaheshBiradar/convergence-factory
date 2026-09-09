@@ -1,9 +1,6 @@
-"""Plugin discovery. Importing this package registers each language plugin.
-
-In production, replace these explicit imports with entry-point discovery so a new
-plugin package (e.g. lang-go) is found without editing the core.
-"""
-from . import lang_sql, lang_python, lang_java, lang_node  # noqa: F401
-from .base import REGISTRY
+"""Backward-compatible facade for convergence_factory.probes.integration."""
+from ..probes.integration import *  # noqa: F401, F403
+from ..probes.integration.base import REGISTRY  # noqa: F401
+from . import base, lang_java, lang_node, lang_python, lang_sql  # noqa: F401
 
 __all__ = ["REGISTRY"]

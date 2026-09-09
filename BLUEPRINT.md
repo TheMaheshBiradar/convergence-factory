@@ -157,3 +157,63 @@ Automated convergence is realized through [rewrite.py](file:///Users/mahesh/Dev/
 - **GitLab Connector**: [gitlab.py](file:///Users/mahesh/Dev/bootcamps/convergence-factory/src/convergence_factory/connectors/gitlab.py) ingests GitLab inventory structures and syncs shallow clones.
 - **SHA-256 Incremental Caching**: [flow.py](file:///Users/mahesh/Dev/bootcamps/convergence-factory/pipelines/flow.py) hashes source trees and reuses extracted facts in `scan_cache`, achieving 100% cache hits on clean repeat runs.
 - **Visual Topology**: [report.py](file:///Users/mahesh/Dev/bootcamps/convergence-factory/src/convergence_factory/report.py) embeds real-time Mermaid.js wiring diagrams and live client-side search into the published redundancy map.
+
+
+---
+
+## 10. Domain-Driven Architecture & Package Organization
+
+The codebase is organized into five decoupled domain tiers mapping 1-to-1 with the system concepts:
+
+```
+src/convergence_factory/
+├── core/                        # Pure Analytical Core (Standard Library Only)
+│   ├── schema.py                # Normalized Schema Contract (v0.1) & Validation
+│   ├── store.py                 # SQLite FactStore with SHA-256 cache
+│   ├── resolver.py              # Configuration & constant resolver (YAML/props/env)
+│   └── graph.py                 # Union-Find clustering & opportunity formula
+│
+├── probes/                      # The 5 Blueprint Evidence Probes
+│   ├── integration/             # Probe 1: Integration & Dataflow (AST Plugins)
+│   │   ├── lang_python.py       # Python AST & import coupling analyzer
+│   │   ├── lang_java.py         # Java Tree-Sitter & annotation analyzer
+│   │   ├── lang_sql.py          # SQL read/write table lineage extractor
+│   │   └── lang_node.py         # JavaScript/TypeScript AST & package.json
+│   ├── semantic/                # Probe 2: Capability & Semantic Recall
+│   │   ├── probe.py             # Nearest-neighbor vector recall pipeline
+│   │   ├── judge.py             # Pairwise Judge (Heuristic & REST LLM)
+│   │   ├── embedder.py          # Char-n-gram & embedding adapters
+│   │   └── summarizer.py        # Language-neutral capability summarization
+│   ├── contracts/               # Probe 3: API & Contract Surfaces (REST, gRPC)
+│   ├── bom/                     # Probe 4: Dependency & BOM Manifests
+│   └── clones/                  # Probe 5: Code Clone Detection (Type 1 & 2)
+│       └── clone_probe.py       # Tokenized line hashing
+│
+├── remediation/                 # Action, Refactoring & Governance Layer
+│   ├── ratchets/                # One-Way CI/CD Ratchet Guardrails
+│   │   └── ratchet.py           # ArchUnit, Import-Linter, dependency-cruiser
+│   ├── refactoring/             # OpenRewrite Declarative Recipes
+│   │   └── rewrite.py           # rewrite.yml & run_rewrite.sh generator
+│   └── healing/                 # Automated Closed-Loop Self-Healing Engine
+│       └── heal.py              # Closed-loop refactoring, verification & ratcheting
+│
+├── ingestion/                   # Portfolio Ingestion & Census
+│   ├── census.py                # Repository census & primary detection
+│   ├── caching.py               # SHA-256 repo content hashing
+│   └── connectors/              # Portfolio Source Connectors
+│       └── gitlab.py            # GitLab inventory parser & shallow clone sync
+│
+├── exporters/                   # Visualization & Interoperability
+│   ├── report.py                # Redundancy Map generator & HTML template
+│   ├── mermaid.py               # Mermaid.js topology generator
+│   └── graphify.py              # Graphify & Cytoscape graph.json exporter
+│
+├── runner.py                    # Multi-language extraction dispatcher
+├── eval.py                      # Calibration benchmark evaluator
+├── cli.py                       # Unified CLI dispatcher
+└── [facades]                    # Root re-exports for 100% backward compatibility
+pipelines/
+└── flow.py                      # Prefect / Dagster orchestration with incremental caching
+```
+
+All root modules maintain backward-compatible facade re-exports, guaranteeing that existing code, CLI commands, and downstream consumers run with zero breaking changes.

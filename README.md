@@ -10,29 +10,60 @@ See the architecture blueprint: [BLUEPRINT.md](file:///Users/mahesh/Dev/bootcamp
 
 ## Design in one line
 
-The **normalized schema is the contract** ([schema.py](file:///Users/mahesh/Dev/bootcamps/convergence-factory/src/convergence_factory/schema.py)). Plugins read a repo in their language
+The **normalized schema is the contract** ([schema.py](file:///Users/mahesh/Dev/bootcamps/convergence-factory/src/convergence_factory/core/schema.py)). Probes read a repo in their language
 and emit normalized facts; the core consumes only those and never learns a
-language. Adding a technology touches only `plugins/` and `fixtures/` — never
+language. Adding a technology touches only `probes/` and `fixtures/` — never
 `core/`.
 
 ```
 src/convergence_factory/
-  schema.py            the normalized fact contract (version 0.1)
-  store.py             fact store (SQLite) with SHA-256 incremental caching
-  runner.py            orchestrates plugin execution over scanned repos
-  graph.py             derives similarity graph and convergence clusters
-  clone_probe.py       tokenized line hashing for Type 1 & 2 code clones
-  ratchet.py           one-way CI governance ratchet generator
-  report.py            redundancy map visualizer (Mermaid.js + live search)
-  census.py            manifest scanning and language resolution
-  resolver.py          config and constant resolver (properties, YAML)
-  eval.py              precision, recall, and resolution benchmark evaluator
-  plugins/             lang_python.py · lang_java.py · lang_sql.py
-  semantic/            probe.py (vector recall) · judge.py (pairwise LLM judge)
-  executors/           rewrite.py (declarative OpenRewrite recipes)
-  connectors/          gitlab.py (GitLab inventory connector & shallow clone sync)
+├── core/                        # Pure Analytical Core (Standard Library Only)
+│   ├── schema.py                # Normalized Schema Contract (v0.1) & Validation
+│   ├── store.py                 # SQLite FactStore with SHA-256 cache
+│   ├── resolver.py              # Configuration & constant resolver (YAML/props/env)
+│   └── graph.py                 # Union-Find clustering & opportunity formula
+│
+├── probes/                      # The 5 Blueprint Evidence Probes
+│   ├── integration/             # Probe 1: Integration & Dataflow (AST Plugins)
+│   │   ├── lang_python.py       # Python AST & import coupling analyzer
+│   │   ├── lang_java.py         # Java Tree-Sitter & annotation analyzer
+│   │   ├── lang_sql.py          # SQL read/write table lineage extractor
+│   │   └── lang_node.py         # JavaScript/TypeScript AST & package.json
+│   ├── semantic/                # Probe 2: Capability & Semantic Recall
+│   │   ├── probe.py             # Nearest-neighbor vector recall pipeline
+│   │   ├── judge.py             # Pairwise Judge (Heuristic & REST LLM)
+│   │   ├── embedder.py          # Char-n-gram & embedding adapters
+│   │   └── summarizer.py        # Language-neutral capability summarization
+│   ├── contracts/               # Probe 3: API & Contract Surfaces (REST, gRPC)
+│   ├── bom/                     # Probe 4: Dependency & BOM Manifests
+│   └── clones/                  # Probe 5: Code Clone Detection (Type 1 & 2)
+│       └── clone_probe.py       # Tokenized line hashing
+│
+├── remediation/                 # Action, Refactoring & Governance Layer
+│   ├── ratchets/                # One-Way CI/CD Ratchet Guardrails
+│   │   └── ratchet.py           # ArchUnit, Import-Linter, dependency-cruiser
+│   ├── refactoring/             # OpenRewrite Declarative Recipes
+│   │   └── rewrite.py           # rewrite.yml & run_rewrite.sh generator
+│   └── healing/                 # Automated Closed-Loop Self-Healing Engine
+│       └── heal.py              # Closed-loop refactoring, verification & ratcheting
+│
+├── ingestion/                   # Portfolio Ingestion & Census
+│   ├── census.py                # Repository census & primary detection
+│   ├── caching.py               # SHA-256 repo content hashing
+│   └── connectors/              # Portfolio Source Connectors
+│       └── gitlab.py            # GitLab inventory parser & shallow clone sync
+│
+├── exporters/                   # Visualization & Interoperability
+│   ├── report.py                # Redundancy Map generator & HTML template
+│   ├── mermaid.py               # Mermaid.js topology generator
+│   └── graphify.py              # Graphify & Cytoscape graph.json exporter
+│
+├── runner.py                    # Multi-language extraction dispatcher
+├── eval.py                      # Calibration benchmark evaluator
+├── cli.py                       # Unified CLI dispatcher
+└── [facades]                    # Root re-exports for 100% backward compatibility
 pipelines/
-  flow.py              Prefect / Dagster orchestration with incremental caching
+└── flow.py                      # Prefect / Dagster orchestration with incremental caching
 ```
 
 ## Run it
@@ -60,9 +91,15 @@ PYTHONPATH=src python3 -m convergence_factory ratchet
 
 # generate OpenRewrite declarative refactoring recipes
 PYTHONPATH=src python3 -m convergence_factory rewrite
+
+# run automated closed-loop self-healing
+PYTHONPATH=src python3 -m convergence_factory heal
+
+# serve the interactive Redundancy Map on local HTTP port
+PYTHONPATH=src python3 -m convergence_factory serve
 ```
 
-The interactive redundancy map is written to `.factory/site/index.html`.
+The interactive redundancy map is written to `.factory/site/index.html` and graph data is exported to `.factory/site/graph.json` for Graphify / Cytoscape visual exploration.
 
 ### Sharper probes (optional)
 
@@ -70,7 +107,7 @@ The interactive redundancy map is written to `.factory/site/index.html`.
 pip install -e ".[sql,config,orchestration]"   # sqlglot, pyyaml, prefect
 ```
 
-Point `semantic/embedder.RestEmbedder`, `semantic/summarizer.RestSummarizer`, and `semantic/judge.RestJudge`
+Point `RestEmbedder`, `RestSummarizer`, and `RestJudge`
 at your self-hosted models for the semantic layer; the `Hashing`/`Heuristic`
 defaults keep local runs dependency-free and reproducible.
 
@@ -80,4 +117,3 @@ Every fact carries a tier — `HIGH` (literal/deterministic / code clone), `MED`
 (config-resolved / embedding similarity / judge-confirmed), `LOW` (unconfirmed candidate recall). The
 report's tier filter serves three audiences: exec (HIGH),
 prioritization (+MED), exploratory (all).
-
