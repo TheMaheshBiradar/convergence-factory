@@ -19,7 +19,7 @@ from .summarizer import HeuristicSummarizer, Summarizer
 
 
 def recall(store: Store, embedder: Embedder = None, summarizer: Summarizer = None,
-           med_threshold: float = 0.75, low_threshold: float = 0.55) -> List[dict]:
+           med_threshold: float = 0.75, low_threshold: float = 0.40) -> List[dict]:
     embedder = embedder or HashingEmbedder()
     summarizer = summarizer or HeuristicSummarizer()
 
@@ -34,7 +34,7 @@ def recall(store: Store, embedder: Embedder = None, summarizer: Summarizer = Non
     summaries = []
     for m in store.modules():
         text = summarizer.summarize(m.name, facts_by_mod.get(m.id, []),
-                                    deps_by_mod.get(m.id, []))
+                                    deps_by_mod.get(m.id, []), module_path=m.path)
         vectors[m.id] = embedder.embed(text)
         summaries.append(CapabilitySummary(
             module_id=m.id, summary=text, embedding_ref=f"vec:{m.id}", tier="MED"))

@@ -29,6 +29,16 @@ class Judge:
         raise NotImplementedError
 
 
+_STOP_WORDS = {
+    "and", "for", "the", "with", "this", "that", "from", "uses", "into", "some",
+    "plain", "more", "like", "also", "have", "been", "according", "various"
+}
+
+
+def _stem(w: str) -> str:
+    return re.sub(r'(?:ing|ers|er|ed|s)$', '', w)
+
+
 class HeuristicJudge(Judge):
     """Deterministic, dependency-free judge for local testing and CI."""
 
@@ -39,12 +49,14 @@ class HeuristicJudge(Judge):
                  owner_a: str, owner_b: str) -> JudgeResult:
         sim = candidate.get("similarity", 0.0)
 
-        # Tokenize meaningful words (>3 chars)
-        words_a = set(re.findall(r'\b[a-z]{4,}\b', summary_a.lower()))
-        words_b = set(re.findall(r'\b[a-z]{4,}\b', summary_b.lower()))
+        # Tokenize meaningful words (>=3 chars) and stem suffixes
+        tokens_a = re.findall(r'\b[a-z]{3,}\b', summary_a.lower())
+        tokens_b = re.findall(r'\b[a-z]{3,}\b', summary_b.lower())
+        words_a = {_stem(w) for w in tokens_a if w not in _STOP_WORDS}
+        words_b = {_stem(w) for w in tokens_b if w not in _STOP_WORDS}
         overlap = words_a & words_b
 
-        # High similarity (>0.75) or significant keyword overlap confirms duplication
+        # High similarity (>0.70) or significant keyword overlap confirms duplication
         is_confirmed = sim >= self.threshold or len(overlap) >= 2
         confidence = round(max(sim, len(overlap) / max(len(words_a | words_b), 1)), 2)
 
@@ -75,76 +87,72 @@ class RestJudge(Judge):
 
     def evaluate(self, candidate: dict, summary_a: str, summary_b: str,
                  owner_a: str, owner_b: str) -> JudgeResult:
-        prompt = f"""Compare the following two software module capability summaries:
-Module A (Owner: {owner_a}):
-{summary_a}
+        prompt = f"""You are an enterprise software architect evaluating two code modules for capability duplication.
+Module A: {candidate['a']}
+Summary A: {summary_a}
 
-Module B (Owner: {owner_b}):
-{summary_b}
+Module B: {candidate['b']}
+Summary B: {summary_b}
 
-Do these two modules perform substantially the same business capability?
-Respond in strictly valid JSON format with keys:
-"confirmed": true/false,
-"confidence": 0.0-1.0,
-"reason": "short explanation",
-"play": "RETIRE" (if same owner) or "STANDARDIZE" (if different owners) or "LEAVE"
+Do these two modules implement the same core business capability or duplicate each other?
+Respond strictly in JSON format with keys:
+- "confirmed": boolean
+- "confidence": float between 0.0 and 1.0
+- "reason": short one-sentence explanation
+- "play": "RETIRE" if same owner, "STANDARDIZE" if cross-owner duplicate, or "LEAVE" if distinct.
 """
-        req_data = json.dumps({
+        payload = json.dumps({
             "model": self.model,
             "prompt": prompt,
-            "format": "json",
-            "stream": False
-        }).encode("utf8")
+            "stream": False,
+            "format": "json"
+        }).encode("utf-8")
 
+        req = urllib.request.Request(self.endpoint, data=payload, headers={"Content-Type": "application/json"})
         try:
-            req = urllib.request.Request(
-                self.endpoint,
-                data=req_data,
-                headers={"Content-Type": "application/json"},
-                method="POST"
-            )
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                data = json.loads(resp.read().decode("utf8"))
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
                 body = json.loads(data.get("response", "{}"))
                 return JudgeResult(
                     confirmed=bool(body.get("confirmed", False)),
                     confidence=float(body.get("confidence", 0.5)),
-                    reason=str(body.get("reason", "LLM pairwise comparison")),
-                    play=str(body.get("play", "STANDARDIZE"))
+                    reason=str(body.get("reason", "LLM judged evaluation")),
+                    play=str(body.get("play", "LEAVE"))
                 )
         except Exception:
-            # Fall back gracefully to heuristic judge when endpoint is offline
+            # Fallback gracefully to HeuristicJudge if model server is unreachable
             return self.fallback.evaluate(candidate, summary_a, summary_b, owner_a, owner_b)
 
 
-def judge_candidates(store: Store, candidates: List[dict],
-                     judge: Optional[Judge] = None) -> List[dict]:
-    """Evaluates all candidate pairs through the judge."""
+def judge_candidates(arg1, arg2, judge: Optional[Judge] = None) -> List[dict]:
+    """Evaluates all recall candidate pairs and records judgments in the store."""
+    if isinstance(arg1, Store):
+        store, candidates = arg1, arg2
+    else:
+        candidates, store = arg1, arg2
     judge = judge or HeuristicJudge()
-    owner_map = store.module_owner()
+    summaries = {row["module_id"]: row["summary"] for row in store.db.execute("SELECT module_id, summary FROM capability_summaries")}
+    owners = store.module_owner()
 
-    # Load summaries from store
-    summaries: Dict[str, str] = {}
-    for row in store.db.execute("SELECT module_id, summary FROM capability_summaries"):
-        summaries[row["module_id"]] = row["summary"]
-
-    evaluated = []
+    results = []
     for cand in candidates:
-        mod_a = cand["a"]
-        mod_b = cand["b"]
-        sum_a = summaries.get(mod_a, "")
-        sum_b = summaries.get(mod_b, "")
-        own_a = owner_map.get(mod_a, "unknown")
-        own_b = owner_map.get(mod_b, "unknown")
+        ma, mb = cand["a"], cand["b"]
+        sa = summaries.get(ma, ma)
+        sb = summaries.get(mb, mb)
+        oa = owners.get(ma, "unknown")
+        ob = owners.get(mb, "unknown")
 
-        res = judge.evaluate(cand, sum_a, sum_b, own_a, own_b)
-        evaluated.append({
-            **cand,
+        res = judge.evaluate(cand, sa, sb, oa, ob)
+        results.append({
+            "a": ma,
+            "b": mb,
+            "similarity": cand.get("similarity", 0.0),
+            "tier": cand.get("tier", "MED"),
             "confirmed": res.confirmed,
             "confidence": res.confidence,
             "reason": res.reason,
             "play": res.play,
-            "owners": sorted(list(set([own_a, own_b])))
+            "owners": sorted({oa, ob})
         })
 
-    return evaluated
+    return results
