@@ -71,15 +71,16 @@ pipelines/
 No third-party dependencies required — the analytical core runs entirely on the standard library.
 
 ```bash
-# 1. Full pipeline over the bundled Java + Python + SQL fixtures -> redundancy map
-PYTHONPATH=src python3 -m convergence_factory run
+# ⚡ Quickest way: One-click runner script (runs all stages)
+./run.sh
 
-# 2. Run full pipeline with Pairwise Judge, governance ratchets, and refactoring recipes
-PYTHONPATH=src python3 -m convergence_factory run --judge --ratchet --rewrite
+# With live local LLM (Ollama auto-detected) and instant browser preview:
+./run.sh --llm --serve
 
-# 3. Serve the interactive Redundancy Map on local HTTP port
-PYTHONPATH=src python3 -m convergence_factory serve
+# Or run via Python directly:
+python3 -m convergence_factory run --all
 ```
+
 
 The interactive redundancy map is written to `.factory/site/index.html` and graph data is exported to `.factory/site/graph.json` for Graphify / Cytoscape visual exploration.
 

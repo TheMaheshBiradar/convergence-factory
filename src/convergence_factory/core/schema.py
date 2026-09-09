@@ -16,8 +16,11 @@ SCHEMA_VERSION = "0.1"
 
 # --- controlled vocabularies (the enums the core validates against) ---
 TIERS = {"HIGH", "MED", "LOW"}
-DIRECTIONS = {"PRODUCES", "CONSUMES", "READS", "WRITES", "CALLS"}
-RESOURCE_TYPES = {"KAFKA_TOPIC", "SQL_TABLE", "HTTP_ENDPOINT", "JMS_QUEUE", "CACHE_KEY"}
+# SERVES = a module exposes/implements the resource (e.g. an API endpoint a
+# service hosts). Two SERVES on the same endpoint = a duplicate service surface.
+DIRECTIONS = {"PRODUCES", "CONSUMES", "READS", "WRITES", "CALLS", "SERVES"}
+RESOURCE_TYPES = {"KAFKA_TOPIC", "SQL_TABLE", "SQL_COLUMN", "HTTP_ENDPOINT",
+                  "JMS_QUEUE", "CACHE_KEY"}
 MODULE_KINDS = {"service", "library", "job", "batch"}
 API_KINDS = {"REST", "GRPC", "GRAPHQL"}
 DEP_SCOPES = {"runtime", "test", "build"}

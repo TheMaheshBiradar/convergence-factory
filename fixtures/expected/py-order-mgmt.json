@@ -2,6 +2,8 @@
   "repo": "py-order-mgmt",
   "integration": [
     ["PRODUCES", "KAFKA_TOPIC", "order.created"],
-    ["WRITES", "SQL_TABLE", "customers"]
+    ["WRITES", "SQL_TABLE", "customers"],
+    ["WRITES", "SQL_COLUMN", "customers.id"],
+    ["WRITES", "SQL_COLUMN", "customers.name"]
   ]
 }

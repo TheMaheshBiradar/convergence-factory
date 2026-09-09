@@ -1,16 +1,13 @@
-"""Dependency & BOM Manifest Probe (Probe 4).
-
-Extracts build manifests, dependency trees, and SBOM coordinates across pom.xml,
-package.json, requirements.txt, pyproject.toml, and setup.py.
-"""
-from __future__ import annotations
-
+"""BOM / dependency probe."""
 import os
 import re
 from typing import List
 from convergence_factory.core.schema import Dependency
+from . import bom_probe  # noqa: F401
+from .bom_probe import build_sbom, run_bom, shared_dependency_report  # noqa: F401
 
-def parse_requirements_txt(path: str, module_id: str) -> List[Dependency]:
+
+def parse_requirements_txt(path: str, module_id: str = "") -> List[Dependency]:
     """Extracts Python dependencies from requirements.txt."""
     if not os.path.exists(path):
         return []
@@ -30,4 +27,6 @@ def parse_requirements_txt(path: str, module_id: str) -> List[Dependency]:
                 ))
     return deps
 
-__all__ = ["parse_requirements_txt"]
+
+__all__ = ["bom_probe", "build_sbom", "run_bom", "shared_dependency_report", "parse_requirements_txt"]
+

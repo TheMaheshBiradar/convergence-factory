@@ -36,31 +36,61 @@ _STOP_WORDS = {
     "plain", "more", "like", "also", "have", "been", "according", "various"
 }
 
+# Structural / infrastructure vocabulary that nearly EVERY module summary shares
+# (verbs and platform nouns). Overlap on these says "both are Kafka services",
+# not "both do the same thing" — so it must NOT drive a confirmation. This is the
+# fix for the judge rubber-stamping unrelated services as duplicates.
+_GENERIC = {
+    "produce", "publish", "consume", "read", "write", "call", "serve", "expose",
+    "event", "topic", "table", "column", "endpoint", "queue", "cache", "resource",
+    "service", "module", "library", "job", "api", "rest", "grpc", "http", "sql",
+    "kafka", "spring", "data", "jpa", "boot", "client", "server", "use", "using",
+    "confluent", "psycopg", "sqlalchemy", "requests", "httpx", "axios", "npm",
+}
+
 
 def _stem(w: str) -> str:
     return re.sub(r'(?:ing|ers|er|ed|s)$', '', w)
 
 
-class HeuristicJudge(Judge):
-    """Deterministic, dependency-free judge for local testing and CI."""
+def _domain_tokens(summary: str) -> set:
+    """Meaningful (non-generic, non-stopword) stemmed tokens from a summary."""
+    toks = re.findall(r'\b[a-z]{3,}\b', summary.lower())
+    out = set()
+    for w in toks:
+        if w in _STOP_WORDS:
+            continue
+        s = _stem(w)
+        if s in _GENERIC or w in _GENERIC:
+            continue
+        out.add(s)
+    return out
 
-    def __init__(self, confidence_threshold: float = 0.70):
+
+class HeuristicJudge(Judge):
+    """Deterministic, dependency-free judge for local testing and CI.
+
+    Conservative by design: a stand-in judge must not launder low-confidence
+    recall into "confirmed". Confirmation requires overlap on real DOMAIN terms
+    (e.g. `order`, `customer`), never on shared structural vocabulary.
+    """
+
+    def __init__(self, confidence_threshold: float = 0.82):
         self.threshold = confidence_threshold
 
     def evaluate(self, candidate: dict, summary_a: str, summary_b: str,
                  owner_a: str, owner_b: str) -> JudgeResult:
         sim = candidate.get("similarity", 0.0)
+        dom_a = _domain_tokens(summary_a)
+        dom_b = _domain_tokens(summary_b)
+        overlap = dom_a & dom_b
 
-        # Tokenize meaningful words (>=3 chars) and stem suffixes
-        tokens_a = re.findall(r'\b[a-z]{3,}\b', summary_a.lower())
-        tokens_b = re.findall(r'\b[a-z]{3,}\b', summary_b.lower())
-        words_a = {_stem(w) for w in tokens_a if w not in _STOP_WORDS}
-        words_b = {_stem(w) for w in tokens_b if w not in _STOP_WORDS}
-        overlap = words_a & words_b
-
-        # High similarity (>0.70) or significant keyword overlap confirms duplication
-        is_confirmed = sim >= self.threshold or len(overlap) >= 2
-        confidence = round(max(sim, len(overlap) / max(len(words_a | words_b), 1)), 2)
+        # Confirm only on real shared domain terms: two of them, or one plus a
+        # very high embedding similarity. Generic vocabulary never counts.
+        is_confirmed = len(overlap) >= 2 or (len(overlap) >= 1 and sim >= self.threshold)
+        denom = max(len(dom_a | dom_b), 1)
+        confidence = round(min(sim, 0.5 + len(overlap) / denom) if is_confirmed
+                           else min(sim, 0.4), 2)
 
         if is_confirmed:
             play = "RETIRE" if owner_a == owner_b else "STANDARDIZE"
@@ -70,12 +100,9 @@ class HeuristicJudge(Judge):
             play = "LEAVE"
             reason = f"Insufficient capability overlap (sim={sim:.2f}, shared keywords={len(overlap)})"
 
-        return JudgeResult(
-            confirmed=is_confirmed,
-            confidence=confidence,
-            reason=reason,
-            play=play
-        )
+
+        return JudgeResult(confirmed=is_confirmed, confidence=confidence,
+                           reason=reason, play=play)
 
 
 class RestJudge(Judge):

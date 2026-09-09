@@ -41,7 +41,12 @@ def _edge_type(dir_a: str, dir_b: str, rtype: str) -> str:
         return "DUP_PRODUCER"
     if rtype == "SQL_TABLE" and dir_a == "WRITES" and dir_b == "WRITES":
         return "DUP_WRITER"
+    if rtype == "HTTP_ENDPOINT" and dir_a == "SERVES" and dir_b == "SERVES":
+        return "DUP_ENDPOINT"
     return "SHARES_RESOURCE"
+
+
+_DUP_EDGES = ("DUP_PRODUCER", "DUP_WRITER", "DUP_ENDPOINT")
 
 
 def build(store: Store) -> dict:
@@ -97,7 +102,7 @@ def build(store: Store) -> dict:
         owners = sorted({owner.get(m, "unknown") for m in members})
         best_tier = max((e["tier"] for e in cl_edges), key=lambda t: _TIER_RANK[t])
         tier_mix = sorted({e["tier"] for e in cl_edges}, key=lambda t: -_TIER_RANK[t])
-        has_dup = any(e["type"] in ("DUP_PRODUCER", "DUP_WRITER") for e in cl_edges)
+        has_dup = any(e["type"] in _DUP_EDGES for e in cl_edges)
         score = len(shared) * len(members) + (2 if has_dup else 0)
         member_coupling = [coupling_map[m] for m in members if m in coupling_map]
         coupling = round(sum(member_coupling) / len(member_coupling), 3) \
@@ -133,13 +138,16 @@ def _label(edges: List[dict]) -> str:
         return f"Code clone · {clones[0]['resource_id']}"
     dup_prod = [e for e in edges if e["type"] == "DUP_PRODUCER"]
     dup_write = [e for e in edges if e["type"] == "DUP_WRITER"]
+    dup_api = [e for e in edges if e["type"] == "DUP_ENDPOINT"]
     if dup_prod:
         return f"Publishes event · {dup_prod[0]['resource_id']}"
     if dup_write:
         return f"Writes table · {dup_write[0]['resource_id']}"
+    if dup_api:
+        return f"Duplicate API · {dup_api[0]['resource_id']}"
     e = edges[0]
-    kind = "topic" if e["resource_type"] == "KAFKA_TOPIC" else \
-        "table" if e["resource_type"] == "SQL_TABLE" else "endpoint"
+    kind = {"KAFKA_TOPIC": "topic", "SQL_TABLE": "table", "SQL_COLUMN": "column",
+            "HTTP_ENDPOINT": "endpoint"}.get(e["resource_type"], "resource")
     return f"Shares {kind} · {e['resource_id']}"
 
 

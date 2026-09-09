@@ -16,7 +16,7 @@ from convergence_factory.core.resolver import ResolutionContext, resolve
 from convergence_factory.core.schema import (Dependency, FactBundle, Gap, IntegrationFact, Module,
                       ModuleMetric, Provenance)
 from .base import LanguagePlugin, read, register, walk_files
-from .lang_sql import extract_sql_lineage
+from .lang_sql import extract_sql_columns, extract_sql_lineage
 
 _HTTP_METHODS = {"get", "post", "put", "delete", "patch", "request"}
 _KAFKA_HINTS = ("kafka", "confluent_kafka", "aiokafka")
@@ -70,6 +70,11 @@ class _Visitor(ast.NodeVisitor):
                         self.integration.append(IntegrationFact(
                             module_id="", direction=direction,
                             resource_type="SQL_TABLE", resource_id=table,
+                            tier="HIGH", provenance=self._prov(node)))
+                    for direction, column in extract_sql_columns(arg0.value):
+                        self.integration.append(IntegrationFact(
+                            module_id="", direction=direction,
+                            resource_type="SQL_COLUMN", resource_id=column,
                             tier="HIGH", provenance=self._prov(node)))
             # HTTP call
             elif attr in _HTTP_METHODS and arg0 is not None and self._http_obj(func.value):

@@ -1,14 +1,14 @@
-"""API & Contract Surfaces Probe (Probe 3).
-
-Surfaces REST endpoints, gRPC services, GraphQL schemas, and OpenAPI contracts.
-"""
-from __future__ import annotations
-
+"""API / contract probe."""
 from typing import List
 from convergence_factory.core.schema import ApiSurface, Module
+from . import api_probe  # noqa: F401
+from .api_probe import extract_api  # noqa: F401
 
-def extract_contracts(module: Module, repo_path: str) -> List[ApiSurface]:
+
+def extract_contracts(module: Module = None, repo_path: str = "") -> List[ApiSurface]:
     """Base extractor for contract surfaces."""
     return []
 
-__all__ = ["extract_contracts"]
+
+__all__ = ["api_probe", "extract_api", "extract_contracts"]
+

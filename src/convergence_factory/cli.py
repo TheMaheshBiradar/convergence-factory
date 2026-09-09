@@ -66,6 +66,11 @@ def cmd_run(args):
     print(f"  modules={totals['modules']} integration={totals['integration']} "
           f"deps={totals['deps']} gaps={totals['gaps']} skipped={totals['skipped']}")
 
+    print("[api] scanning API/contract surfaces (OpenAPI/proto/GraphQL)")
+    from convergence_factory.probes.contracts import extract_api
+    api_count = extract_api(store)
+    print(f"  endpoints exposed={api_count}")
+
     print("[clones] detecting cross-module code clones")
     clones = detect_clones(store)
     print(f"  clones detected={len(clones)}")
@@ -115,6 +120,17 @@ def cmd_run(args):
         out_recipes = os.path.join(args.out, "recipes")
         generated_recipes = rewrite_mod.generate_all_rewrite_recipes(g["clusters"], out_recipes)
         print(f"  recipes generated={len(generated_recipes)}")
+
+    print("[bom] generating SBOMs + shared-dependency report")
+    from convergence_factory.probes.bom import run_bom
+    bom = run_bom(store, args.out)
+    print(f"  sboms={len(bom['sbom_files'])} shared-across-teams={len(bom['shared_dependencies'])}")
+
+    print("[schema] analyzing DB schema (FK graph + orphans)")
+    from convergence_factory.probes.schema import analyze_schema
+    sch = analyze_schema(store)
+    print(f"  tables={len(sch['tables'])} fk_edges={len(sch['fk_edges'])} "
+          f"orphan_tables={len(sch['orphan_tables'])}")
 
     store.close()
 

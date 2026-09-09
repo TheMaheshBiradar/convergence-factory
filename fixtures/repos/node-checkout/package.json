@@ -1,0 +1,8 @@
+{
+  "name": "checkout",
+  "version": "1.0.0",
+  "dependencies": {
+    "kafkajs": "^2.2.4",
+    "axios": "^1.6.0"
+  }
+}

@@ -2,6 +2,17 @@
   "repo": "sql-warehouse",
   "integration": [
     ["WRITES", "SQL_TABLE", "customers"],
-    ["WRITES", "SQL_TABLE", "active_customers"]
+    ["WRITES", "SQL_TABLE", "active_customers"],
+    ["WRITES", "SQL_TABLE", "orders"],
+    ["WRITES", "SQL_TABLE", "audit_log_deprecated"],
+    ["READS", "SQL_TABLE", "customers"],
+    ["WRITES", "SQL_COLUMN", "customers.id"],
+    ["WRITES", "SQL_COLUMN", "customers.name"],
+    ["WRITES", "SQL_COLUMN", "customers.active"],
+    ["WRITES", "SQL_COLUMN", "orders.id"],
+    ["WRITES", "SQL_COLUMN", "orders.customer_id"],
+    ["WRITES", "SQL_COLUMN", "orders.total_cents"],
+    ["WRITES", "SQL_COLUMN", "audit_log_deprecated.id"],
+    ["WRITES", "SQL_COLUMN", "audit_log_deprecated.note"]
   ]
 }

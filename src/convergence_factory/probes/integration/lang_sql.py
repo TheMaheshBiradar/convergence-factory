@@ -77,6 +77,60 @@ def extract_sql_lineage(sql: str) -> Lineage:
     return [(d, t) for t, d in best.items()]
 
 
+_CONSTRAINT_KW = {"PRIMARY", "FOREIGN", "CONSTRAINT", "UNIQUE", "CHECK", "KEY", "INDEX"}
+_CREATE_COLS = re.compile(
+    r'CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([`"\w\.]+)\s*\((.*?)\)\s*;', re.I | re.S)
+_INSERT_COLS = re.compile(r'INSERT\s+INTO\s+([`"\w\.]+)\s*\(([^)]*)\)', re.I)
+
+
+def _split_top_level(body: str) -> List[str]:
+    """Split a CREATE TABLE body on top-level commas (ignoring nested parens)."""
+    parts, depth, cur = [], 0, []
+    for ch in body:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        if ch == "," and depth == 0:
+            parts.append("".join(cur))
+            cur = []
+        else:
+            cur.append(ch)
+    if cur:
+        parts.append("".join(cur))
+    return parts
+
+
+def extract_sql_columns(sql: str) -> List[Tuple[str, str]]:
+    """Best-effort column-level lineage: which `table.column`s a statement writes.
+
+    Covers the reliable, high-value cases — column definitions in CREATE TABLE and
+    column lists in INSERT — which is enough to link two modules that own/write the
+    same column. Returns [(direction, "table.column"), ...].
+    """
+    out: List[Tuple[str, str]] = []
+    for m in _CREATE_COLS.finditer(sql or ""):
+        table = _clean(m.group(1))
+        for coldef in _split_top_level(m.group(2)):
+            tokens = coldef.strip().split()
+            if not tokens:
+                continue
+            name = _clean(tokens[0])
+            if name and name.upper() not in _CONSTRAINT_KW:
+                out.append(("WRITES", f"{table}.{name}"))
+    for m in _INSERT_COLS.finditer(sql or ""):
+        table = _clean(m.group(1))
+        for col in m.group(2).split(","):
+            name = _clean(col)
+            if name:
+                out.append(("WRITES", f"{table}.{name}"))
+    # de-dup
+    seen = {}
+    for d, c in out:
+        seen.setdefault(c, d)
+    return [(d, c) for c, d in seen.items()]
+
+
 @register
 class SqlPlugin(LanguagePlugin):
     name = "lang-sql"
@@ -104,4 +158,9 @@ class SqlPlugin(LanguagePlugin):
                     module_id=module.id, direction=direction,
                     resource_type="SQL_TABLE", resource_id=table, tier="HIGH",
                     provenance=Provenance(file=rel, snippet="(sql)")))
+            for direction, column in extract_sql_columns(sql):
+                bundle.integration.append(IntegrationFact(
+                    module_id=module.id, direction=direction,
+                    resource_type="SQL_COLUMN", resource_id=column, tier="HIGH",
+                    provenance=Provenance(file=rel, snippet="(sql column)")))
         return bundle
