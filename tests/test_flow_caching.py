@@ -89,6 +89,14 @@ class TestFlowCaching(unittest.TestCase):
         self.assertEqual(len(store.integration_facts()), 0)
         store.close()
 
+    def test_pipeline_full_options(self):
+        # Run pipeline with judge, ratchet, and rewrite enabled
+        res = run_pipeline(self.repos_dir, self.out_dir, use_cache=False, judge=True, ratchet=True, rewrite=True)
+        self.assertIn("pipeline_stats", res)
+        self.assertIn("ratchets", res)
+        self.assertIn("recipes", res)
+        self.assertTrue(os.path.exists(os.path.join(self.out_dir, "site", "index.html")))
+
 
 if __name__ == "__main__":
     unittest.main()

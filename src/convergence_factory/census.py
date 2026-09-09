@@ -8,7 +8,7 @@ and picks the primary language plugin.
 from __future__ import annotations
 
 import os
-from typing import List
+from typing import List, Optional
 
 from .plugins.base import REGISTRY, read, walk_files
 from .runner import ProjectScan

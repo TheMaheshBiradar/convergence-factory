@@ -82,6 +82,21 @@ def cmd_run(args):
 
     print("[report] rendering redundancy map")
     summary = report_mod.render(store, g, candidates, args.out)
+
+    if getattr(args, "ratchet", False):
+        print("[ratchet] generating one-way governance ratchets")
+        out_ratchets = os.path.join(args.out, "ratchets")
+        generated_ratchets = ratchet_mod.generate_all_ratchets(g["clusters"], out_ratchets)
+        print(f"  ratchets generated: ArchUnit={len(generated_ratchets['archunit'])} "
+              f"Import-Linter={len(generated_ratchets['import_linter'])} "
+              f"dep-cruiser={len(generated_ratchets['dependency_cruiser'])}")
+
+    if getattr(args, "rewrite", False):
+        print("[rewrite] generating OpenRewrite refactoring recipes")
+        out_recipes = os.path.join(args.out, "recipes")
+        generated_recipes = rewrite_mod.generate_all_rewrite_recipes(g["clusters"], out_recipes)
+        print(f"  recipes generated={len(generated_recipes)}")
+
     store.close()
 
     print("\n=== REDUNDANCY MAP ===")
@@ -193,6 +208,8 @@ def main(argv=None):
     r.add_argument("root", nargs="?", default=None)
     r.add_argument("--out", default=DEFAULT_OUT)
     r.add_argument("--judge", action="store_true", help="run pairwise judge to confirm and promote candidates")
+    r.add_argument("--ratchet", action="store_true", help="generate one-way governance ratchets")
+    r.add_argument("--rewrite", action="store_true", help="generate OpenRewrite refactoring recipes")
     r.add_argument("--inventory", default=None, help="path to GitLab inventory JSON")
     r.set_defaults(func=cmd_run)
 
