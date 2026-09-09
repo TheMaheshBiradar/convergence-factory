@@ -1,0 +1,6 @@
+{
+  "repo": "svc-inventory",
+  "integration": [
+    ["PRODUCES", "KAFKA_TOPIC", "inventory.updated"]
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "repo": "inventory-sync",
+  "integration": [
+    ["PRODUCES", "KAFKA_TOPIC", "inventory.updated"]
+  ]
+}

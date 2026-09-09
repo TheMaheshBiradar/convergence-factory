@@ -1,0 +1,7 @@
+{
+  "repo": "sql-warehouse",
+  "integration": [
+    ["WRITES", "SQL_TABLE", "customers"],
+    ["WRITES", "SQL_TABLE", "active_customers"]
+  ]
+}
