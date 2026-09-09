@@ -218,6 +218,34 @@ def cmd_heal(args):
     return 0
 
 
+def cmd_serve(args):
+    import http.server
+    import socketserver
+    import webbrowser
+
+    site_dir = os.path.join(args.out, "site")
+    if not os.path.exists(site_dir):
+        print(f"[serve] No report found in {site_dir}. Run `convergence-factory run` first.")
+        return 1
+
+    port = args.port
+
+    class Handler(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *a, **kw):
+            super().__init__(*a, directory=site_dir, **kw)
+
+    try:
+        with socketserver.TCPServer(("", port), Handler) as httpd:
+            url = f"http://localhost:{port}"
+            print(f"[serve] Serving Redundancy Map at {url} (Ctrl+C to stop)")
+            if not getattr(args, "no_browser", False):
+                webbrowser.open(url)
+            httpd.serve_forever()
+    except KeyboardInterrupt:
+        print("\n[serve] Server stopped.")
+    return 0
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="convergence_factory")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -260,6 +288,12 @@ def main(argv=None):
     hl.add_argument("root", nargs="?", default=None)
     hl.add_argument("--cluster", default=None, help="target specific cluster ID to heal")
     hl.set_defaults(func=cmd_heal)
+
+    srv = sub.add_parser("serve", help="serve the interactive redundancy map in the browser")
+    srv.add_argument("--out", default=DEFAULT_OUT)
+    srv.add_argument("--port", type=int, default=8080, help="port to serve on (default: 8080)")
+    srv.add_argument("--no-browser", action="store_true", help="do not auto-open the browser")
+    srv.set_defaults(func=cmd_serve)
 
     args = p.parse_args(argv)
     return args.func(args)
