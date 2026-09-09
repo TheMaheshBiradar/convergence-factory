@@ -11,7 +11,7 @@ import os
 from typing import List, Optional
 
 from convergence_factory.logger import LOGGER
-from convergence_factory.probes.integration.base import REGISTRY, read, walk_files
+from convergence_factory.probes.integration.base import REGISTRY, is_ignored_dir, read, walk_files
 from convergence_factory.runner import ProjectScan
 from convergence_factory.core.schema import Project
 
@@ -65,7 +65,7 @@ def scan(root: str) -> List[ProjectScan]:
     scans: List[ProjectScan] = []
     for name in sorted(os.listdir(root)):
         repo_path = os.path.join(root, name)
-        if not os.path.isdir(repo_path) or name.startswith("."):
+        if not os.path.isdir(repo_path) or is_ignored_dir(name):
             continue
         ps = scan_project(repo_path, project_id=name)
         if ps:

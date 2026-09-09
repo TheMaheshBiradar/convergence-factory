@@ -42,7 +42,7 @@ def _tokenize_file(path: str, normalize_idents: bool = False) -> Set[str]:
 def _module_tokens(module_path: str, normalize_idents: bool = False) -> Set[str]:
     """Collects all tokens across a module's source files."""
     tokens = set()
-    for f in walk_files(module_path, (".py", ".java", ".sql")):
+    for f in walk_files(module_path, (".py", ".java", ".sql", ".js", ".ts", ".jsx", ".tsx")):
         tokens.update(_tokenize_file(f, normalize_idents=normalize_idents))
     return tokens
 

@@ -15,7 +15,7 @@ from typing import Dict, List, Optional, Set, Tuple
 
 from convergence_factory.core.schema import (Dependency, FactBundle, Gap, IntegrationFact,
                       Module, ModuleMetric, Provenance)
-from .base import LanguagePlugin, read, register, walk_files
+from .base import LanguagePlugin, is_ignored_dir, read, register, walk_files
 
 _NODE_EXTS = (".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs")
 _HTTP_CALL_RE = re.compile(
@@ -33,7 +33,8 @@ except Exception:                       # pragma: no cover
 
 
 def _excluded(path: str) -> bool:
-    return "/node_modules/" in path or "/dist/" in path or "/.git/" in path
+    parts = set(os.path.normpath(path).split(os.sep))
+    return any(is_ignored_dir(p) for p in parts)
 
 
 def _strlit(node) -> Optional[str]:

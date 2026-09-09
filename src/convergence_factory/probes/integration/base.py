@@ -46,15 +46,43 @@ class LanguagePlugin:
 # --- small shared filesystem helpers ---
 
 _IGNORED_DIRS = {
-    ".git", "node_modules", ".venv", "venv", "env", "target", "build",
-    "dist", ".gradle", ".idea", ".vscode", "vendor", "__pycache__"
+    # Version control & OS
+    ".git", ".svn", ".hg", ".DS_Store",
+
+    # Node.js / Web
+    "node_modules", ".next", ".nuxt", ".output", ".turbo", ".yarn", ".npm",
+    "coverage", ".nyc_output", "storybook-static", "bower_components", "jspm_packages",
+
+    # Python
+    ".venv", "venv", "env", ".env", "__pycache__", ".pytest_cache", ".tox",
+    ".nox", ".mypy_cache", ".ruff_cache", ".coverage", "htmlcov", ".hypothesis",
+    ".eggs",
+
+    # Java / JVM
+    "target", "build", ".gradle", ".m2", "out", "bin", ".settings", ".metadata",
+
+    # General / IDE / Build / Infra
+    ".idea", ".vscode", "vendor", "dist", "tmp", "temp", ".terraform",
 }
+
+
+def is_ignored_dir(name: str) -> bool:
+    """Returns True if the directory should be pruned during traversal."""
+    if not name or name == ".":
+        return False
+    if name in _IGNORED_DIRS:
+        return True
+    if name.startswith(".") and name != ".":
+        return True
+    if name.endswith((".egg-info", ".dist-info")):
+        return True
+    return False
 
 
 def walk_files(repo_path: str, exts: tuple) -> List[str]:
     out = []
     for root, dirs, files in os.walk(repo_path):
-        dirs[:] = [d for d in dirs if d not in _IGNORED_DIRS and not (d.startswith(".") and d != ".")]
+        dirs[:] = [d for d in dirs if not is_ignored_dir(d)]
         for f in files:
             if f.endswith(exts):
                 out.append(os.path.join(root, f))
