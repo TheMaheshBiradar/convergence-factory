@@ -38,6 +38,8 @@ CREATE TABLE IF NOT EXISTS gaps (
   module_id TEXT, kind TEXT, expression TEXT, provenance TEXT);
 CREATE TABLE IF NOT EXISTS module_metrics (
   module_id TEXT, name TEXT, value REAL);
+CREATE TABLE IF NOT EXISTS scan_cache (
+  project_id TEXT PRIMARY KEY, content_hash TEXT, last_scanned TEXT);
 """
 
 
@@ -108,6 +110,29 @@ class Store:
         rows = self.db.execute(
             "SELECT module_id, value FROM module_metrics WHERE name = ?", (name,)).fetchall()
         return {r["module_id"]: r["value"] for r in rows}
+
+    def get_cache(self, project_id: str) -> Optional[str]:
+        row = self.db.execute(
+            "SELECT content_hash FROM scan_cache WHERE project_id = ?", (project_id,)).fetchone()
+        return row["content_hash"] if row else None
+
+    def set_cache(self, project_id: str, content_hash: str) -> None:
+        self.db.execute(
+            "INSERT OR REPLACE INTO scan_cache (project_id, content_hash, last_scanned) VALUES (?, ?, CURRENT_TIMESTAMP)",
+            (project_id, content_hash))
+        self.db.commit()
+
+    def clear_project(self, project_id: str) -> None:
+        """Deletes all modules, facts, metrics, dependencies, APIs, and summaries for a project."""
+        mod_rows = self.db.execute("SELECT id FROM modules WHERE project_id = ?", (project_id,)).fetchall()
+        mod_ids = [r["id"] for r in mod_rows]
+        if mod_ids:
+            placeholders = ",".join("?" for _ in mod_ids)
+            for tbl in ("integration_facts", "dependencies", "api_surfaces", "capability_summaries", "gaps", "module_metrics"):
+                self.db.execute(f"DELETE FROM {tbl} WHERE module_id IN ({placeholders})", mod_ids)
+        self.db.execute("DELETE FROM modules WHERE project_id = ?", (project_id,))
+        self.db.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+        self.db.commit()
 
     # --- readers ---
     def projects(self) -> List[Project]:
