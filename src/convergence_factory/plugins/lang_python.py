@@ -180,7 +180,14 @@ class PythonPlugin(LanguagePlugin):
             return 0.0
 
         def resolve_local(cand):
-            return next((l for l in local if cand == l or cand.startswith(l + ".")), None)
+            if cand in local:
+                return cand
+            cur = cand
+            while "." in cur:
+                cur, _ = cur.rsplit(".", 1)
+                if cur in local:
+                    return cur
+            return None
 
         edges = set()  # distinct (importer, target) pairs
         for p in files:
@@ -215,13 +222,45 @@ class PythonPlugin(LanguagePlugin):
 
     @staticmethod
     def _deps(module_id, repo_path) -> List[Dependency]:
-        req = os.path.join(repo_path, "requirements.txt")
-        out = []
-        if os.path.exists(req):
-            for line in read(req).splitlines():
-                line = line.strip()
-                if line and not line.startswith("#"):
-                    pkg = re.split(r"[=<>!~ ]", line, 1)[0]
-                    out.append(Dependency(module_id=module_id,
-                                          purl=f"pkg:pypi/{pkg}", scope="runtime"))
-        return out
+        pkgs = set()
+        # 1. requirements*.txt
+        try:
+            for f in os.listdir(repo_path):
+                if f.startswith("requirements") and f.endswith(".txt"):
+                    for line in read(os.path.join(repo_path, f)).splitlines():
+                        line = line.strip()
+                        if line and not line.startswith("#"):
+                            pkg = re.split(r"[=<>!~ ]", line, 1)[0].strip()
+                            if pkg:
+                                pkgs.add(pkg.lower().replace("-", "_"))
+        except OSError:
+            pass
+
+        # 2. pyproject.toml
+        pyproj = os.path.join(repo_path, "pyproject.toml")
+        if os.path.exists(pyproj):
+            content = read(pyproj)
+            in_deps = False
+            for line in content.splitlines():
+                if "dependencies" in line and "=" in line and "[" in line:
+                    in_deps = True
+                if in_deps:
+                    for m in re.finditer(r'["\']([a-zA-Z0-9_\-\.]+)', line):
+                        val = m.group(1)
+                        if val not in ("dependencies", "project"):
+                            pkgs.add(val.lower().replace("-", "_"))
+                    if "]" in line:
+                        in_deps = False
+
+        # 3. setup.py
+        setup_file = os.path.join(repo_path, "setup.py")
+        if os.path.exists(setup_file):
+            content = read(setup_file)
+            for m in re.finditer(r'deps\[["\']([a-zA-Z0-9_\-\.]+)["\']\]', content):
+                pkgs.add(m.group(1).lower().replace("-", "_"))
+            for m in re.finditer(r'install_requires\s*=\s*\[(.*?)\]', content, re.DOTALL):
+                for p in re.finditer(r'["\']([a-zA-Z0-9_\-\.]+)', m.group(1)):
+                    pkgs.add(p.group(1).lower().replace("-", "_"))
+
+        return [Dependency(module_id=module_id, purl=f"pkg:pypi/{pkg}", scope="runtime")
+                for pkg in sorted(pkgs)]
