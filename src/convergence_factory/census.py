@@ -29,24 +29,45 @@ def _owner(repo_path: str) -> str:
     return read(f).strip() if os.path.exists(f) else "unknown"
 
 
+def scan_project(repo_path: str, project_id: Optional[str] = None, repo_url: str = "") -> Optional[ProjectScan]:
+    name = project_id or os.path.basename(repo_path.rstrip("/"))
+    detections = []
+    for plugin in REGISTRY:
+        det = plugin.detect(repo_path)
+        if det:
+            detections.append((plugin, det))
+    if not detections:
+        return None
+    langs = sorted({c for _p, d in detections for c in d["claims"]})
+    primary, det = max(detections, key=lambda pd: pd[1].get("score", 0))
+    project = Project(
+        id=name, name=name, repo_url=repo_url or f"local:{name}", owner_team=_owner(repo_path),
+        langs=langs, loc=_loc(repo_path), activity="unknown",
+        deploy_target=det.get("build", ""))
+    return ProjectScan(project=project, repo_path=repo_path, primary=primary)
+
+
 def scan(root: str) -> List[ProjectScan]:
     scans: List[ProjectScan] = []
     for name in sorted(os.listdir(root)):
         repo_path = os.path.join(root, name)
         if not os.path.isdir(repo_path) or name.startswith("."):
             continue
-        detections = []
-        for plugin in REGISTRY:
-            det = plugin.detect(repo_path)
-            if det:
-                detections.append((plugin, det))
-        if not detections:
-            continue
-        langs = sorted({c for _p, d in detections for c in d["claims"]})
-        primary, det = max(detections, key=lambda pd: pd[1].get("score", 0))
-        project = Project(
-            id=name, name=name, repo_url=f"local:{name}", owner_team=_owner(repo_path),
-            langs=langs, loc=_loc(repo_path), activity="unknown",
-            deploy_target=det.get("build", ""))
-        scans.append(ProjectScan(project=project, repo_path=repo_path, primary=primary))
+        ps = scan_project(repo_path, project_id=name)
+        if ps:
+            scans.append(ps)
     return scans
+
+
+def scan_inventory(inventory_items: List[dict], base_dir: str) -> List[ProjectScan]:
+    """Scans local directories that correspond to items in a GitLab inventory."""
+    scans: List[ProjectScan] = []
+    for item in inventory_items:
+        name = item.get("name") or item.get("path_with_namespace", "").split("/")[-1] or str(item.get("id"))
+        cand_path = os.path.join(base_dir, name)
+        if os.path.isdir(cand_path):
+            ps = scan_project(cand_path, project_id=name, repo_url=item.get("http_url_to_repo", f"gitlab:{name}"))
+            if ps:
+                scans.append(ps)
+    return scans
+

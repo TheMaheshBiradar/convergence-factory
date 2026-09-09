@@ -14,6 +14,8 @@ from . import census as census_mod
 from . import graph as graph_mod
 from . import ratchet as ratchet_mod
 from . import report as report_mod
+from .connectors.gitlab import parse_inventory
+import json
 from .eval import format_report
 from .eval import run as eval_run
 from .executors import rewrite as rewrite_mod
@@ -38,7 +40,12 @@ def cmd_run(args):
     store = Store(db_path)
 
     print(f"[census] scanning {root}")
-    scans = census_mod.scan(root)
+    if getattr(args, "inventory", None):
+        with open(args.inventory) as f:
+            items = parse_inventory(json.load(f))
+        scans = census_mod.scan_inventory(items, root)
+    else:
+        scans = census_mod.scan(root)
     for s in scans:
         print(f"  · {s.project.id:<16} langs={','.join(s.project.langs):<12} "
               f"owner={s.project.owner_team:<12} primary={s.primary.name}")
@@ -86,7 +93,13 @@ def cmd_run(args):
 
 def cmd_census(args):
     root = args.root or DEFAULT_REPOS
-    for s in census_mod.scan(root):
+    if getattr(args, "inventory", None):
+        with open(args.inventory) as f:
+            items = parse_inventory(json.load(f))
+        scans = census_mod.scan_inventory(items, root)
+    else:
+        scans = census_mod.scan(root)
+    for s in scans:
         p = s.project
         print(f"{p.id:<18} langs={','.join(p.langs):<14} loc={p.loc:<6} "
               f"owner={p.owner_team:<12} primary={s.primary.name}")
@@ -175,10 +188,12 @@ def main(argv=None):
     r.add_argument("root", nargs="?", default=None)
     r.add_argument("--out", default=DEFAULT_OUT)
     r.add_argument("--judge", action="store_true", help="run pairwise judge to confirm and promote candidates")
+    r.add_argument("--inventory", default=None, help="path to GitLab inventory JSON")
     r.set_defaults(func=cmd_run)
 
     c = sub.add_parser("census", help="project manifest only")
     c.add_argument("root", nargs="?", default=None)
+    c.add_argument("--inventory", default=None, help="path to GitLab inventory JSON")
     c.set_defaults(func=cmd_census)
 
     e = sub.add_parser("eval", help="calibration eval")
