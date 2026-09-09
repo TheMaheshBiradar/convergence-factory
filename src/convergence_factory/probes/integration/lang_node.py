@@ -129,8 +129,7 @@ class NodePlugin(LanguagePlugin):
                 pass
 
         files = [f for f in walk_files(repo_path, _NODE_EXTS) if not _excluded(f)]
-        has_kafka = "kafkajs" in pkg_deps or any(
-            "kafkajs" in read(f) for f in files)
+        has_kafka_pkg = "kafkajs" in pkg_deps
         import_edges: Set[Tuple[str, str]] = set()
         file_stems = {os.path.splitext(os.path.relpath(f, repo_path))[0].replace("\\", "/"): f
                       for f in files}
@@ -138,6 +137,7 @@ class NodePlugin(LanguagePlugin):
         for f in files:
             rel = os.path.relpath(f, repo_path)
             src = read(f)
+            has_kafka = has_kafka_pkg or ("kafkajs" in src)
             if _TS_JS:
                 self._facts_ast(src, rel, module.id, has_kafka, bundle,
                                 src_stem=os.path.splitext(rel)[0].replace("\\", "/"),

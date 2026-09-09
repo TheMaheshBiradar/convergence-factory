@@ -8,7 +8,9 @@ Commands:
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import time
 
 from . import census as census_mod
 from . import graph as graph_mod
@@ -16,10 +18,10 @@ from . import ratchet as ratchet_mod
 from . import report as report_mod
 from .clone_probe import detect_clones
 from .connectors.gitlab import parse_inventory
-import json
 from .eval import format_report
 from .eval import run as eval_run
 from .executors import rewrite as rewrite_mod
+from .logger import setup_logger
 from .runner import extract
 from .semantic.judge import judge_candidates
 from .semantic.probe import recall
@@ -33,6 +35,7 @@ DEFAULT_OUT = os.path.join(_REPO_ROOT, ".factory")
 
 
 def cmd_run(args):
+    setup_logger(verbose=getattr(args, "verbose", False))
     if getattr(args, "all", False):
         args.judge = True
         args.ratchet = True
@@ -59,12 +62,19 @@ def cmd_run(args):
 
     print("[extract] running plugins")
     totals = {"integration": 0, "deps": 0, "gaps": 0, "skipped": 0, "modules": 0}
+    t_start = time.time()
     for s in scans:
-        st = extract(store, s)
+        t0 = time.time()
+        st = extract(store, s, verbose=getattr(args, "verbose", False))
+        elapsed = time.time() - t0
+        mod_label = f"{st['modules']} module" if st['modules'] == 1 else f"{st['modules']} modules"
+        print(f"  · [{s.project.id:<16}] assigned plugin: {s.primary.name:<11} "
+              f"({mod_label:<9}) -> {elapsed:.2f}s [facts: {st['integration']:<2}, deps: {st['deps']:<2}]")
         for k in totals:
             totals[k] += st[k]
-    print(f"  modules={totals['modules']} integration={totals['integration']} "
-          f"deps={totals['deps']} gaps={totals['gaps']} skipped={totals['skipped']}")
+    total_elapsed = time.time() - t_start
+    print(f"  total: modules={totals['modules']} integration={totals['integration']} "
+          f"deps={totals['deps']} gaps={totals['gaps']} skipped={totals['skipped']} in {total_elapsed:.2f}s")
 
     print("[api] scanning API/contract surfaces (OpenAPI/proto/GraphQL)")
     from convergence_factory.probes.contracts import extract_api
@@ -147,6 +157,7 @@ def cmd_run(args):
 
 
 def cmd_census(args):
+    setup_logger(verbose=getattr(args, "verbose", False))
     root = args.root or DEFAULT_REPOS
     if getattr(args, "inventory", None):
         with open(args.inventory) as f:
@@ -311,11 +322,13 @@ def main(argv=None):
     r.add_argument("--llm-api-key", "--llm-key", dest="llm_api_key", default=None, help="LLM API key or auth token (or $CONVERGENCE_LLM_KEY / $OPENAI_API_KEY)")
     r.add_argument("--ratchet", action="store_true", help="generate one-way governance ratchets")
     r.add_argument("--rewrite", action="store_true", help="generate OpenRewrite refactoring recipes")
+    r.add_argument("-v", "--verbose", action="store_true", help="enable verbose debug logging")
     r.add_argument("--inventory", default=None, help="path to GitLab inventory JSON")
     r.set_defaults(func=cmd_run)
 
     c = sub.add_parser("census", help="project manifest only")
     c.add_argument("root", nargs="?", default=None)
+    c.add_argument("-v", "--verbose", action="store_true", help="enable verbose debug logging")
     c.add_argument("--inventory", default=None, help="path to GitLab inventory JSON")
     c.set_defaults(func=cmd_census)
 

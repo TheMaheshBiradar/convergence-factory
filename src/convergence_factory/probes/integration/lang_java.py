@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import re
+from collections import defaultdict
 from typing import Dict, List, Optional
 
 from convergence_factory.core.resolver import (Resolution, ResolutionContext, load_properties,
@@ -295,17 +296,23 @@ class JavaPlugin(LanguagePlugin):
     @staticmethod
     def _coupling(repo_path) -> float:
         """Internal-class/import dependency density in [0,1] for Java modules.
-        Computes directed edge density among local Java classes/files.
+        Computes directed edge density among local Java classes/files in O(N).
         """
         files = walk_files(repo_path, (".java",))
         n = len(files)
         if n < 2:
             return 0.0
 
-        file_types = {}  # file_path -> (pkg_name, set of type_names)
         pkg_re = re.compile(r"^\s*package\s+([\w\.]+)\s*;", re.M)
         type_re = re.compile(r"\b(?:class|interface|enum|record)\s+([A-Za-z0-9_]+)\b")
         import_re = re.compile(r"^\s*import\s+(?:static\s+)?([\w\.\*]+)\s*;", re.M)
+
+        file_data = []
+        fqcn_to_file = {}
+        unqualified_to_files = defaultdict(set)
+        pkg_to_files = defaultdict(set)
+        pkg_types_set = defaultdict(set)
+        pkg_type_to_file = {}
 
         for p in files:
             src = read(p)
@@ -315,34 +322,44 @@ class JavaPlugin(LanguagePlugin):
             if not types:
                 base = os.path.splitext(os.path.basename(p))[0]
                 types = {base}
-            file_types[p] = (pkg, types)
+            imports = import_re.findall(src)
+            words = set(re.findall(r"\b[A-Za-z0-9_]+\b", src))
+
+            file_data.append((p, pkg, types, imports, words))
+            pkg_to_files[pkg].add(p)
+            for t in types:
+                fqcn = f"{pkg}.{t}" if pkg else t
+                fqcn_to_file[fqcn] = p
+                unqualified_to_files[t].add(p)
+                pkg_type_to_file[(pkg, t)] = p
+                pkg_types_set[pkg].add(t)
 
         edges = set()
-        for p in files:
-            src = read(p)
-            pkg, types = file_types[p]
-            imports = import_re.findall(src)
-
-            # check explicit imports
+        for p, pkg, types, imports, words in file_data:
+            # 1. check explicit imports
             for imp in imports:
                 imp_clean = imp.strip()
-                for target_p, (t_pkg, t_types) in file_types.items():
-                    if target_p == p:
-                        continue
-                    for t in t_types:
-                        fqcn = f"{t_pkg}.{t}" if t_pkg else t
-                        if imp_clean == fqcn or (imp_clean.endswith(".*") and imp_clean[:-2] == t_pkg) or imp_clean == t:
+                if imp_clean in fqcn_to_file:
+                    target_p = fqcn_to_file[imp_clean]
+                    if target_p != p:
+                        edges.add((p, target_p))
+                elif imp_clean.endswith(".*"):
+                    target_pkg = imp_clean[:-2]
+                    for target_p in pkg_to_files.get(target_pkg, ()):
+                        if target_p != p:
+                            edges.add((p, target_p))
+                elif imp_clean in unqualified_to_files:
+                    for target_p in unqualified_to_files[imp_clean]:
+                        if target_p != p:
                             edges.add((p, target_p))
 
-            # check direct references within same package
-            words = set(re.findall(r"\b[A-Za-z0-9_]+\b", src))
-            for target_p, (t_pkg, t_types) in file_types.items():
-                if target_p == p:
-                    continue
-                if t_pkg == pkg and pkg:
-                    for t in t_types:
-                        if t in words:
-                            edges.add((p, target_p))
+            # 2. check direct references within same package
+            if pkg and pkg in pkg_types_set:
+                same_pkg_types = pkg_types_set[pkg] & words
+                for t in same_pkg_types:
+                    target_p = pkg_type_to_file.get((pkg, t))
+                    if target_p and target_p != p:
+                        edges.add((p, target_p))
 
         return round(len(edges) / (n * (n - 1)), 3)
 

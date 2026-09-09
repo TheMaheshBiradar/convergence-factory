@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 from typing import List, Optional
 
+from convergence_factory.logger import LOGGER
 from convergence_factory.probes.integration.base import REGISTRY, read, walk_files
 from convergence_factory.runner import ProjectScan
 from convergence_factory.core.schema import Project
@@ -20,7 +21,13 @@ _SRC_EXTS = (".py", ".java", ".sql", ".ts", ".js", ".go", ".rb")
 def _loc(repo_path: str) -> int:
     total = 0
     for path in walk_files(repo_path, _SRC_EXTS):
-        total += read(path).count("\n") + 1
+        try:
+            with open(path, "rb") as fh:
+                for chunk in iter(lambda: fh.read(65536), b""):
+                    total += chunk.count(b"\n")
+            total += 1
+        except OSError:
+            pass
     return total
 
 
@@ -40,9 +47,16 @@ def scan_project(repo_path: str, project_id: Optional[str] = None, repo_url: str
         return None
     langs = sorted({c for _p, d in detections for c in d["claims"]})
     primary, det = max(detections, key=lambda pd: pd[1].get("score", 0))
+    loc = _loc(repo_path)
+    LOGGER.info(
+        "Census '%s': assigned primary plugin '%s' (claims: %s, candidates: [%s], loc: %d)",
+        name, primary.name, langs,
+        ", ".join(f"{p.name}:{d.get('score', 0)}" for p, d in detections),
+        loc
+    )
     project = Project(
         id=name, name=name, repo_url=repo_url or f"local:{name}", owner_team=_owner(repo_path),
-        langs=langs, loc=_loc(repo_path), activity="unknown",
+        langs=langs, loc=loc, activity="unknown",
         deploy_target=det.get("build", ""))
     return ProjectScan(project=project, repo_path=repo_path, primary=primary)
 
