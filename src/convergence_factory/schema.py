@@ -116,6 +116,15 @@ class Gap:
 
 
 @dataclass
+class ModuleMetric:
+    """A per-module scalar signal — e.g. coupling (how entangled the module is
+    with its host). Feeds the convergence opportunity score."""
+    module_id: str
+    name: str          # e.g. "coupling"
+    value: float
+
+
+@dataclass
 class FactBundle:
     """What a plugin returns for one module."""
     module: Module
@@ -124,6 +133,7 @@ class FactBundle:
     api: List[ApiSurface] = field(default_factory=list)
     summaries: List[CapabilitySummary] = field(default_factory=list)
     gaps: List[Gap] = field(default_factory=list)
+    metrics: List[ModuleMetric] = field(default_factory=list)
     source_ref: str = ""   # path to source text for the semantic probe
 
 

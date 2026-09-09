@@ -64,8 +64,9 @@ def cmd_run(args):
     print("\n=== REDUNDANCY MAP ===")
     for c in g["clusters"]:
         members = ", ".join(m.split(":")[0] for m in c["members"])
+        coupling = "—" if c["coupling"] is None else c["coupling"]
         print(f"  [{c['play']:<11}] {c['label']:<34} tier={c['tier']:<4} "
-              f"score={c['score']:<3} :: {members}")
+              f"opp={c['opportunity']:<4} coupling={coupling!s:<5} :: {members}")
     print(f"\nresolution rate: {summary['resolution_rate']}%   "
           f"(gaps tracked: {summary['gaps']})")
     print(f"site: {summary['site']}")

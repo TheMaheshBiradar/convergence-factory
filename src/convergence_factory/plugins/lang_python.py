@@ -14,7 +14,7 @@ from typing import List
 
 from ..resolver import ResolutionContext, resolve
 from ..schema import (Dependency, FactBundle, Gap, IntegrationFact, Module,
-                      Provenance)
+                      ModuleMetric, Provenance)
 from .base import LanguagePlugin, read, register, walk_files
 from .lang_sql import extract_sql_lineage
 
@@ -154,7 +154,54 @@ class PythonPlugin(LanguagePlugin):
             bundle.integration.extend(v.integration)
             bundle.gaps.extend(v.gaps)
         bundle.dependencies.extend(self._deps(module.id, repo_path))
+        bundle.metrics.append(ModuleMetric(
+            module_id=module.id, name="coupling",
+            value=self._coupling(repo_path)))
         return bundle
+
+    @staticmethod
+    def _coupling(repo_path) -> float:
+        """Internal-import-graph density in [0,1]: how much the repo's own
+        modules depend on each other. A proxy for how entangled a capability is
+        with its host — the convergence score's `coupling` factor.
+
+        Dependency-free (stdlib ast). Grimp / Import-Linter are the production
+        upgrade (cycle detection, layered contracts, the one-way ratchet).
+        """
+        files = walk_files(repo_path, (".py",))
+        names = {}
+        for p in files:
+            rel = os.path.relpath(p, repo_path)
+            name = rel[:-3].replace(os.sep, ".")
+            names[p] = name[:-9] if name.endswith(".__init__") else name
+        local = set(names.values())
+        n = len(local)
+        if n < 2:
+            return 0.0
+
+        def resolve_local(cand):
+            return next((l for l in local if cand == l or cand.startswith(l + ".")), None)
+
+        edges = set()  # distinct (importer, target) pairs
+        for p in files:
+            src = names[p]
+            try:
+                tree = ast.parse(read(p))
+            except SyntaxError:
+                continue
+            for node in ast.walk(tree):
+                cands = []
+                if isinstance(node, ast.Import):
+                    cands = [a.name for a in node.names]
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    # `from pkg import b` -> try both pkg and pkg.b
+                    cands = [node.module] + [f"{node.module}.{a.name}" for a in node.names]
+                for cand in cands:
+                    tgt = resolve_local(cand)
+                    if tgt and tgt != src:
+                        edges.add((src, tgt))
+        # density over all possible directed edges between modules
+        return round(len(edges) / (n * (n - 1)), 3)
 
     @staticmethod
     def _imports(tree) -> List[str]:

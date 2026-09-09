@@ -47,6 +47,7 @@ def _edge_type(dir_a: str, dir_b: str, rtype: str) -> str:
 def build(store: Store) -> dict:
     facts = store.integration_facts()
     owner = store.module_owner()
+    coupling_map = store.metrics_by_name("coupling")
 
     # group module touches by resource
     resources: Dict[tuple, list] = defaultdict(list)
@@ -91,13 +92,19 @@ def build(store: Store) -> dict:
         tier_mix = sorted({e["tier"] for e in cl_edges}, key=lambda t: -_TIER_RANK[t])
         has_dup = any(e["type"] in ("DUP_PRODUCER", "DUP_WRITER") for e in cl_edges)
         score = len(shared) * len(members) + (2 if has_dup else 0)
+        member_coupling = [coupling_map[m] for m in members if m in coupling_map]
+        coupling = round(sum(member_coupling) / len(member_coupling), 3) \
+            if member_coupling else None
+        # opportunity ~ overlap * (1 - coupling): entangled duplicates are
+        # harder to converge, so they rank lower even at equal overlap.
+        opportunity = round(score * (1 - (coupling or 0.0)), 2)
         clusters.append({
             "members": sorted(members), "owners": owners, "shared": shared,
             "edges": cl_edges, "tier": best_tier, "tier_mix": tier_mix,
-            "score": score, "play": _play(has_dup, owners, cl_edges),
-            "label": _label(cl_edges),
+            "score": score, "coupling": coupling, "opportunity": opportunity,
+            "play": _play(has_dup, owners, cl_edges), "label": _label(cl_edges),
         })
-    clusters.sort(key=lambda c: (-c["score"], -_TIER_RANK[c["tier"]]))
+    clusters.sort(key=lambda c: (-c["opportunity"], -_TIER_RANK[c["tier"]]))
     return {"clusters": clusters, "edges": edges, "resource_count": len(resources)}
 
 

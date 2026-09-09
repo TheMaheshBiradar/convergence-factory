@@ -14,7 +14,7 @@ from typing import Iterable, List
 
 from .schema import (
     ApiSurface, CapabilitySummary, Dependency, Gap, IntegrationFact, Module,
-    Project, Provenance,
+    ModuleMetric, Project, Provenance,
 )
 
 _SCHEMA = """
@@ -36,6 +36,8 @@ CREATE TABLE IF NOT EXISTS capability_summaries (
   embedding_ref TEXT, tier TEXT);
 CREATE TABLE IF NOT EXISTS gaps (
   module_id TEXT, kind TEXT, expression TEXT, provenance TEXT);
+CREATE TABLE IF NOT EXISTS module_metrics (
+  module_id TEXT, name TEXT, value REAL);
 """
 
 
@@ -95,6 +97,17 @@ class Store:
             [(g.module_id, g.kind, g.expression, json.dumps(asdict(g.provenance)))
              for g in gaps])
         self.db.commit()
+
+    def add_metrics(self, metrics: Iterable[ModuleMetric]) -> None:
+        self.db.executemany(
+            "INSERT INTO module_metrics VALUES (?,?,?)",
+            [(m.module_id, m.name, m.value) for m in metrics])
+        self.db.commit()
+
+    def metrics_by_name(self, name: str) -> dict:
+        rows = self.db.execute(
+            "SELECT module_id, value FROM module_metrics WHERE name = ?", (name,)).fetchall()
+        return {r["module_id"]: r["value"] for r in rows}
 
     # --- readers ---
     def projects(self) -> List[Project]:

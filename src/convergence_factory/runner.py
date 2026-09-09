@@ -62,4 +62,6 @@ def extract(store: Store, scan: ProjectScan, verbose: bool = False) -> dict:
         stats["gaps"] += len(bundle.gaps)
         if bundle.summaries:
             store.add_summaries(bundle.summaries)
+        if bundle.metrics:
+            store.add_metrics(bundle.metrics)
     return stats

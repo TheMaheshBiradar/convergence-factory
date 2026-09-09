@@ -38,6 +38,7 @@ def render(store: Store, graph: dict, candidates: List[dict], out_dir: str) -> d
     for i, c in enumerate(clusters, 1):
         shared = ", ".join(f"{_esc(rid)}" for _rt, rid in c["shared"])
         mix = " ".join(f'<span class="tier t-{_TIER_LABEL[t]}">{t}</span>' for t in c["tier_mix"])
+        coupling_disp = "&mdash;" if c["coupling"] is None else f"{c['coupling']}"
         rows.append(f"""
       <tr data-tier="{_TIER_LABEL[c['tier']]}">
         <td class="rank">{i}</td>
@@ -46,7 +47,8 @@ def render(store: Store, graph: dict, candidates: List[dict], out_dir: str) -> d
         <td>{_esc(len(c['owners']))} team{'s' if len(c['owners'])!=1 else ''}<div class="shared">{_esc(', '.join(c['owners']))}</div></td>
         <td><span class="play p-{c['play'].lower()}">{c['play']}</span></td>
         <td>{mix}</td>
-        <td class="num">{c['score']}</td>
+        <td class="num">{coupling_disp}</td>
+        <td class="num">{c['opportunity']}</td>
       </tr>""")
 
     cand_rows = []
@@ -62,7 +64,7 @@ def render(store: Store, graph: dict, candidates: List[dict], out_dir: str) -> d
         projects=counts["projects"], modules=counts["modules"],
         facts=counts["integration_facts"], gaps=counts["gaps"],
         resolution=f"{resolution:.0f}", clusters=len(clusters),
-        cluster_rows="".join(rows) or '<tr><td colspan="7">No duplicate clusters found.</td></tr>',
+        cluster_rows="".join(rows) or '<tr><td colspan="8">No duplicate clusters found.</td></tr>',
         cand_rows="".join(cand_rows) or '<tr><td colspan="3">No candidates above threshold.</td></tr>',
     )
     site = os.path.join(out_dir, "site")
@@ -136,7 +138,7 @@ _TEMPLATE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
     <button data-f="med">Prioritization · +MED</button>
     <button data-f="all">Exploratory · all</button>
   </div>
-  <table id="clusters"><thead><tr><th>#</th><th>Capability</th><th>Members</th><th>Ownership</th><th>Play</th><th>Confidence</th><th>Score</th></tr></thead>
+  <table id="clusters"><thead><tr><th>#</th><th>Capability</th><th>Members</th><th>Ownership</th><th>Play</th><th>Confidence</th><th>Coupling</th><th>Opportunity</th></tr></thead>
   <tbody>{cluster_rows}</tbody></table>
 
   <h2>Semantic candidates <span style="font-weight:400;color:var(--muted);font-size:.8rem">— recall only, unconfirmed</span></h2>
