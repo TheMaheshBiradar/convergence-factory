@@ -16,6 +16,7 @@ from . import ratchet as ratchet_mod
 from . import report as report_mod
 from .eval import format_report
 from .eval import run as eval_run
+from .executors import rewrite as rewrite_mod
 from .runner import extract
 from .semantic.judge import judge_candidates
 from .semantic.probe import recall
@@ -146,6 +147,26 @@ def cmd_judge(args):
     return 0
 
 
+def cmd_rewrite(args):
+    root = args.root or DEFAULT_REPOS
+    os.makedirs(args.out, exist_ok=True)
+    db_path = os.path.join(args.out, "factory.db")
+    store = Store(db_path)
+    if not os.path.exists(db_path) or len(store.modules()) == 0:
+        for s in census_mod.scan(root):
+            extract(store, s)
+
+    g = graph_mod.build(store)
+    store.close()
+
+    out_recipes = os.path.join(args.out, "recipes")
+    generated = rewrite_mod.generate_all_rewrite_recipes(g["clusters"], out_recipes)
+    print(f"[rewrite] Generated OpenRewrite convergence recipes in {out_recipes}")
+    for f in generated:
+        print(f"  · {os.path.basename(f)}")
+    return 0
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="convergence_factory")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -174,6 +195,11 @@ def main(argv=None):
     j.add_argument("root", nargs="?", default=None)
     j.add_argument("--out", default=DEFAULT_OUT)
     j.set_defaults(func=cmd_judge)
+
+    rw = sub.add_parser("rewrite", help="generate OpenRewrite refactoring recipes from clusters")
+    rw.add_argument("root", nargs="?", default=None)
+    rw.add_argument("--out", default=DEFAULT_OUT)
+    rw.set_defaults(func=cmd_rewrite)
 
     args = p.parse_args(argv)
     return args.func(args)
