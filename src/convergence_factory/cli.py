@@ -84,8 +84,10 @@ def cmd_run(args):
             from .semantic.judge import RestJudge
             judge_impl = RestJudge(
                 endpoint=getattr(args, "llm_endpoint", None),
-                model=getattr(args, "llm_model", None)
+                model=getattr(args, "llm_model", None),
+                api_key=getattr(args, "llm_api_key", None)
             )
+
             print(f"[judge] running pairwise semantic judge via LLM ({judge_impl.model} @ {judge_impl.endpoint})")
         else:
             judge_impl = None
@@ -190,8 +192,10 @@ def cmd_judge(args):
         from .semantic.judge import RestJudge
         judge_impl = RestJudge(
             endpoint=getattr(args, "llm_endpoint", None),
-            model=getattr(args, "llm_model", None)
+            model=getattr(args, "llm_model", None),
+            api_key=getattr(args, "llm_api_key", None)
         )
+
         print(f"[judge] evaluating candidates via LLM ({judge_impl.model} @ {judge_impl.endpoint})")
     else:
         judge_impl = None
@@ -288,6 +292,7 @@ def main(argv=None):
     r.add_argument("--llm", action="store_true", help="use live LLM server for judge instead of heuristic engine")
     r.add_argument("--llm-endpoint", default=None, help="LLM REST endpoint (default: http://localhost:11434/api/generate or $CONVERGENCE_LLM_ENDPOINT)")
     r.add_argument("--llm-model", default=None, help="LLM model name (default: llama3 or $CONVERGENCE_LLM_MODEL)")
+    r.add_argument("--llm-api-key", "--llm-key", dest="llm_api_key", default=None, help="LLM API key or auth token (or $CONVERGENCE_LLM_KEY / $OPENAI_API_KEY)")
     r.add_argument("--ratchet", action="store_true", help="generate one-way governance ratchets")
     r.add_argument("--rewrite", action="store_true", help="generate OpenRewrite refactoring recipes")
     r.add_argument("--inventory", default=None, help="path to GitLab inventory JSON")
@@ -314,7 +319,9 @@ def main(argv=None):
     j.add_argument("--llm", action="store_true", help="use live LLM server for judge")
     j.add_argument("--llm-endpoint", default=None, help="LLM REST endpoint (default: http://localhost:11434/api/generate or $CONVERGENCE_LLM_ENDPOINT)")
     j.add_argument("--llm-model", default=None, help="LLM model name (default: llama3 or $CONVERGENCE_LLM_MODEL)")
+    j.add_argument("--llm-api-key", "--llm-key", dest="llm_api_key", default=None, help="LLM API key or auth token (or $CONVERGENCE_LLM_KEY / $OPENAI_API_KEY)")
     j.set_defaults(func=cmd_judge)
+
 
 
     rw = sub.add_parser("rewrite", help="generate OpenRewrite refactoring recipes from clusters")

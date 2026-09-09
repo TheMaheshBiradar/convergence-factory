@@ -79,14 +79,16 @@ class HeuristicJudge(Judge):
 
 
 class RestJudge(Judge):
-    """Pairwise judge delegating to a self-hosted LLM endpoint (vLLM, Ollama, etc.)."""
+    """Pairwise judge delegating to an LLM endpoint (Ollama, vLLM, OpenAI, Azure, Groq, LiteLLM)."""
 
     def __init__(self, endpoint: Optional[str] = None,
-                 model: Optional[str] = None, fallback: Optional[Judge] = None):
+                 model: Optional[str] = None,
+                 api_key: Optional[str] = None,
+                 fallback: Optional[Judge] = None):
         self.endpoint = endpoint or os.environ.get("CONVERGENCE_LLM_ENDPOINT") or os.environ.get("LLM_ENDPOINT") or "http://localhost:11434/api/generate"
         self.model = model or os.environ.get("CONVERGENCE_LLM_MODEL") or os.environ.get("LLM_MODEL") or "llama3"
+        self.api_key = api_key or os.environ.get("CONVERGENCE_LLM_KEY") or os.environ.get("OPENAI_API_KEY") or ""
         self.fallback = fallback or HeuristicJudge()
-
 
     def evaluate(self, candidate: dict, summary_a: str, summary_b: str,
                  owner_a: str, owner_b: str) -> JudgeResult:
@@ -104,18 +106,39 @@ Respond strictly in JSON format with keys:
 - "reason": short one-sentence explanation
 - "play": "RETIRE" if same owner, "STANDARDIZE" if cross-owner duplicate, or "LEAVE" if distinct.
 """
-        payload = json.dumps({
-            "model": self.model,
-            "prompt": prompt,
-            "stream": False,
-            "format": "json"
-        }).encode("utf-8")
+        is_chat_api = "/chat/completions" in self.endpoint or "openai" in self.endpoint or "groq" in self.endpoint
 
-        req = urllib.request.Request(self.endpoint, data=payload, headers={"Content-Type": "application/json"})
+        if is_chat_api:
+            payload_dict = {
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": "You are an enterprise software architect evaluating duplicate capabilities. Respond strictly in JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                "response_format": {"type": "json_object"}
+            }
+        else:
+            payload_dict = {
+                "model": self.model,
+                "prompt": prompt,
+                "stream": False,
+                "format": "json"
+            }
+
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
+        payload = json.dumps(payload_dict).encode("utf-8")
+        req = urllib.request.Request(self.endpoint, data=payload, headers=headers)
         try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(req, timeout=15) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
-                body = json.loads(data.get("response", "{}"))
+                if is_chat_api:
+                    content = data["choices"][0]["message"]["content"]
+                    body = json.loads(content)
+                else:
+                    body = json.loads(data.get("response", "{}"))
                 return JudgeResult(
                     confirmed=bool(body.get("confirmed", False)),
                     confidence=float(body.get("confidence", 0.5)),
@@ -125,6 +148,7 @@ Respond strictly in JSON format with keys:
         except Exception:
             # Fallback gracefully to HeuristicJudge if model server is unreachable
             return self.fallback.evaluate(candidate, summary_a, summary_b, owner_a, owner_b)
+
 
 
 def judge_candidates(arg1, arg2, judge: Optional[Judge] = None) -> List[dict]:
