@@ -12,6 +12,7 @@ import os
 
 from . import census as census_mod
 from . import graph as graph_mod
+from . import ratchet as ratchet_mod
 from . import report as report_mod
 from .eval import format_report
 from .eval import run as eval_run
@@ -91,6 +92,29 @@ def cmd_eval(args):
     return 0
 
 
+def cmd_ratchet(args):
+    root = args.root or DEFAULT_REPOS
+    os.makedirs(args.out, exist_ok=True)
+    db_path = os.path.join(args.out, "factory.db")
+    if not os.path.exists(db_path):
+        store = Store(db_path)
+        for s in census_mod.scan(root):
+            extract(store, s)
+    else:
+        store = Store(db_path)
+
+    g = graph_mod.build(store)
+    store.close()
+
+    out_ratchets = os.path.join(args.out, "ratchets")
+    generated = ratchet_mod.generate_all_ratchets(g["clusters"], out_ratchets)
+    print(f"[ratchet] Generated governance rules in {out_ratchets}")
+    print(f"  · ArchUnit tests       : {len(generated['archunit'])}")
+    print(f"  · Import-Linter configs: {len(generated['import_linter'])}")
+    print(f"  · dep-cruiser rules    : {len(generated['dependency_cruiser'])}")
+    return 0
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="convergence_factory")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -109,5 +133,11 @@ def main(argv=None):
     e.add_argument("--expected", default=None)
     e.set_defaults(func=cmd_eval)
 
+    rt = sub.add_parser("ratchet", help="generate one-way governance ratchets from clusters")
+    rt.add_argument("root", nargs="?", default=None)
+    rt.add_argument("--out", default=DEFAULT_OUT)
+    rt.set_defaults(func=cmd_ratchet)
+
     args = p.parse_args(argv)
     return args.func(args)
+
