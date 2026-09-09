@@ -176,6 +176,14 @@ class Store:
                 r["resource_id"], r["tier"], Provenance(**prov), r["schema_ref"]))
         return out
 
+    def dependencies(self) -> List[Dependency]:
+        rows = self.db.execute("SELECT * FROM dependencies").fetchall()
+        return [Dependency(r["module_id"], r["purl"], r["scope"], r["tier"]) for r in rows]
+
+    def api_surfaces(self) -> List[ApiSurface]:
+        rows = self.db.execute("SELECT * FROM api_surfaces").fetchall()
+        return [ApiSurface(r["module_id"], r["kind"], r["signature"], r["role"], r["tier"]) for r in rows]
+
     def counts(self) -> dict:
         c = self.db.execute
         return {
