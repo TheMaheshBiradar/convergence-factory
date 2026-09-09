@@ -22,7 +22,7 @@ from typing import Dict, List, Optional
 from ..resolver import (Resolution, ResolutionContext, load_properties,
                         load_simple_yaml, resolve)
 from ..schema import (Dependency, FactBundle, Gap, IntegrationFact, Module,
-                      Provenance)
+                      ModuleMetric, Provenance)
 from .base import LanguagePlugin, read, register, walk_files
 from .lang_sql import extract_sql_lineage
 
@@ -109,6 +109,9 @@ class JavaPlugin(LanguagePlugin):
             else:
                 self._facts_regex(src, rel, module.id, config, bundle)
         bundle.dependencies.extend(self._deps(module.id, repo_path))
+        bundle.metrics.append(ModuleMetric(
+            module_id=module.id, name="coupling",
+            value=self._coupling(repo_path)))
         return bundle
 
     # --- backend 1: tree-sitter AST ---------------------------------------
@@ -288,6 +291,59 @@ class JavaPlugin(LanguagePlugin):
                                       purl=f"pkg:maven/{group.strip()}/{artifact.strip()}",
                                       scope="runtime"))
         return out
+
+    @staticmethod
+    def _coupling(repo_path) -> float:
+        """Internal-class/import dependency density in [0,1] for Java modules.
+        Computes directed edge density among local Java classes/files.
+        """
+        files = walk_files(repo_path, (".java",))
+        n = len(files)
+        if n < 2:
+            return 0.0
+
+        file_types = {}  # file_path -> (pkg_name, set of type_names)
+        pkg_re = re.compile(r"^\s*package\s+([\w\.]+)\s*;", re.M)
+        type_re = re.compile(r"\b(?:class|interface|enum|record)\s+([A-Za-z0-9_]+)\b")
+        import_re = re.compile(r"^\s*import\s+(?:static\s+)?([\w\.\*]+)\s*;", re.M)
+
+        for p in files:
+            src = read(p)
+            pkg_m = pkg_re.search(src)
+            pkg = pkg_m.group(1) if pkg_m else ""
+            types = set(type_re.findall(src))
+            if not types:
+                base = os.path.splitext(os.path.basename(p))[0]
+                types = {base}
+            file_types[p] = (pkg, types)
+
+        edges = set()
+        for p in files:
+            src = read(p)
+            pkg, types = file_types[p]
+            imports = import_re.findall(src)
+
+            # check explicit imports
+            for imp in imports:
+                imp_clean = imp.strip()
+                for target_p, (t_pkg, t_types) in file_types.items():
+                    if target_p == p:
+                        continue
+                    for t in t_types:
+                        fqcn = f"{t_pkg}.{t}" if t_pkg else t
+                        if imp_clean == fqcn or (imp_clean.endswith(".*") and imp_clean[:-2] == t_pkg) or imp_clean == t:
+                            edges.add((p, target_p))
+
+            # check direct references within same package
+            for target_p, (t_pkg, t_types) in file_types.items():
+                if target_p == p:
+                    continue
+                if t_pkg == pkg and pkg:
+                    for t in t_types:
+                        if re.search(r"\b" + re.escape(t) + r"\b", src):
+                            edges.add((p, target_p))
+
+        return round(len(edges) / (n * (n - 1)), 3)
 
 
 register(JavaPlugin())
