@@ -1,0 +1,9 @@
+# Convergence Factory
+# The core analytical engine runs on Python 3.10+ Standard Library with ZERO required third-party dependencies.
+# Install local package in editable mode:
+#   pip install -e .
+
+# Optional Probe Enhancements:
+sqlglot>=23.0.0          # AST SQL table lineage extractor
+pyyaml>=6.0              # Deep Spring/k8s YAML configuration resolver
+prefect>=2.14.0          # Portfolio DAG orchestration with content-hash caching
