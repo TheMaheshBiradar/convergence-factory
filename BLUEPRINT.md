@@ -43,6 +43,9 @@ Convergence Factory detects functional duplication across multiple languages (Ja
 The core system never learns programming languages.
 - **Core modules**: [schema.py](file:///Users/mahesh/Dev/bootcamps/convergence-factory/src/convergence_factory/schema.py), [store.py](file:///Users/mahesh/Dev/bootcamps/convergence-factory/src/convergence_factory/store.py), [runner.py](file:///Users/mahesh/Dev/bootcamps/convergence-factory/src/convergence_factory/runner.py), [graph.py](file:///Users/mahesh/Dev/bootcamps/convergence-factory/src/convergence_factory/graph.py), [report.py](file:///Users/mahesh/Dev/bootcamps/convergence-factory/src/convergence_factory/report.py). Built once.
 - **Language Plugins**: [lang_python.py](file:///Users/mahesh/Dev/bootcamps/convergence-factory/src/convergence_factory/plugins/lang_python.py), [lang_java.py](file:///Users/mahesh/Dev/bootcamps/convergence-factory/src/convergence_factory/plugins/lang_java.py), [lang_sql.py](file:///Users/mahesh/Dev/bootcamps/convergence-factory/src/convergence_factory/plugins/lang_sql.py). Ingest repo ASTs and emit standardized `FactBundle` objects.
+- **Code Clones**: [clone_probe.py](file:///Users/mahesh/Dev/bootcamps/convergence-factory/src/convergence_factory/clone_probe.py). Detects Type 1 & 2 cross-module clones.
+- **Semantic Layer**: [probe.py](file:///Users/mahesh/Dev/bootcamps/convergence-factory/src/convergence_factory/semantic/probe.py), [judge.py](file:///Users/mahesh/Dev/bootcamps/convergence-factory/src/convergence_factory/semantic/judge.py). Vector recall and LLM pairwise verification.
+- **Executors & Bridges**: [ratchet.py](file:///Users/mahesh/Dev/bootcamps/convergence-factory/src/convergence_factory/ratchet.py), [rewrite.py](file:///Users/mahesh/Dev/bootcamps/convergence-factory/src/convergence_factory/executors/rewrite.py), [gitlab.py](file:///Users/mahesh/Dev/bootcamps/convergence-factory/src/convergence_factory/connectors/gitlab.py).
 
 ---
 
@@ -51,23 +54,23 @@ The core system never learns programming languages.
 | # | Probe | Technique | Target Artifacts | Primary Signal |
 |---|---|---|---|---|
 | 1 | **Integration / Dataflow** | Framework AST + Config resolver | Kafka producers/consumers, JPA/SQL, HTTP clients | Shared event topics, database tables, downstream services |
-| 2 | **Capability / Semantic** | LLM Summarizer + Vector Embeddings | Function/class summaries embedded into vector space | Cross-language semantic similarity (recall) |
+| 2 | **Capability / Semantic** | LLM Summarizer + Vector Embeddings + Pairwise Judge | Function/class summaries embedded into vector space | Cross-language semantic similarity (recall) confirmed by judge |
 | 3 | **API / Contract** | AST & OpenAPI parser | Spring `@RestController`, FastAPI routes, gRPC stubs | Identical endpoint paths, payloads, or schemas |
 | 4 | **Dependency / BOM** | Build file parsers | `pom.xml`, `requirements.txt`, `package.json` | Shared frameworks, divergence in library versions |
-| 5 | **Code Clone** | Token/AST similarity | Raw source trees | Direct copy-paste / fork divergence |
+| 5 | **Code Clone** | Tokenized source line hashing | Raw source trees | Direct copy-paste (Type 1) & parameterized clones (Type 2) |
 
 ---
 
 ## 3. Confidence Tiers & Defensibility
 
 Every fact emitted carries a strict **confidence tier** to preserve executive defensibility:
-* **`HIGH` (Deterministic)**: Extracted from literal string constants or verified AST signatures (e.g., `kafkaTemplate.send("order.created", msg)`).
-* **`MED` (Config-Resolved / Proximity)**: Extracted via property lookup (e.g., `@Value("${kafka.topic.order}")` resolved from `application.yml`) or high-confidence embedding similarity.
-* **`LOW` (Exploratory Recall)**: Unconfirmed LLM-generated assertions or tentative semantic matches requiring human / judge confirmation.
+* **`HIGH` (Deterministic)**: Extracted from literal string constants or verified AST signatures (e.g., `kafkaTemplate.send("order.created", msg)`), or Type 1/2 code clones.
+* **`MED` (Config-Resolved / Proximity / Judge-Confirmed)**: Extracted via property lookup (e.g., `@Value("${kafka.topic.order}")` resolved from `application.yml`), high-confidence embedding similarity, or semantic candidate pairs confirmed by the Pairwise Judge.
+* **`LOW` (Exploratory Recall)**: Unconfirmed candidate pairs surfaced by embedding nearest neighbors prior to judge evaluation.
 
 The Redundancy Map UI provides immediate tier-based filtering:
 1. **Exec View (`HIGH`)**: Only undeniable, hard-evidence overlaps.
-2. **Prioritization View (`+MED`)**: Adds config-resolved relationships for portfolio planning.
+2. **Prioritization View (`+MED`)**: Adds config-resolved relationships and confirmed semantic pairs for portfolio planning.
 3. **Exploratory View (`ALL`)**: Full candidate recall for deep investigation.
 
 ---
@@ -80,7 +83,7 @@ $$\text{Opportunity} = \text{Score}_{\text{raw}} \times (1 - \text{Coupling})$$
 
 Where:
 * $\text{Score}_{\text{raw}} = |\text{Shared Resources}| \times |\text{Members}| + (2 \text{ if duplicate writer/producer else } 0)$
-* $\text{Coupling} \in [0.0, 1.0]$: Internal import graph density of the module ($\frac{\text{directed edges}}{n(n-1)}$).
+* $\text{Coupling} \in [0.0, 1.0]$: Internal import graph density of the module ($\frac{\text{directed edges}}{n(n-1)}$), extracted via Python and Java AST parsers.
 * **Convergence Plays**:
   * **`STANDARDIZE`**: Multi-team duplication on the same resource (requires cross-team consensus).
   * **`RETIRE`**: Single-team internal duplication (safe to sunset immediately).
@@ -110,7 +113,7 @@ The following external libraries and analyzers interface with the Convergence Fa
 
 A critical challenge in enterprise rationalization is **post-convergence regression**: once duplicate systems are merged or retired, developers unconsciously recreate the duplicate functionality in new services.
 
-The **One-Way Ratchet** solves this by installing automated CI guardrails at convergence time:
+The **One-Way Ratchet** solves this by installing automated CI guardrails at convergence time via [ratchet.py](file:///Users/mahesh/Dev/bootcamps/convergence-factory/src/convergence_factory/ratchet.py):
 
 ```
 [Redundancy Map] ──► [Convergence Play: RETIRE] ──► [Install One-Way Ratchet]
@@ -128,3 +131,28 @@ The **One-Way Ratchet** solves this by installing automated CI guardrails at con
 1. **Snapshot Current Debt**: Tools like `ArchUnit` (`FreezingArchRule`) or `Import-Linter` baseline existing violations without breaking existing builds.
 2. **Block New Infractions**: Any pull request introducing a new dependency to a retired module or duplicate event topic is automatically rejected.
 3. **Ratchet Downward**: As legacy code is eliminated, the baseline is automatically lowered and never permitted to increase.
+
+---
+
+## 7. Phase 1.5: The Pairwise Semantic Judge
+
+Vector embeddings generate wide recall of candidate pairs that may share functional intent without shared code or wiring. The Pairwise Judge ([judge.py](file:///Users/mahesh/Dev/bootcamps/convergence-factory/src/convergence_factory/semantic/judge.py)) prevents false-positive hallucinations by performing deep semantic comparison:
+- **`HeuristicJudge`**: Zero-dependency domain term tokenizer and overlap scorer for deterministic CI.
+- **`RestJudge`**: Pluggable client for self-hosted LLM endpoints (vLLM, Ollama, private cloud).
+- **Cluster Promotion**: Confirmed pairs graduate into the formal convergence graph with calculated opportunity scores and assigned plays (`RETIRE` for intra-team duplicates, `STANDARDIZE` for cross-team duplicates).
+
+---
+
+## 8. Phase 2: OpenRewrite Refactoring Executor
+
+Automated convergence is realized through [rewrite.py](file:///Users/mahesh/Dev/bootcamps/convergence-factory/src/convergence_factory/executors/rewrite.py):
+- Automatically produces declarative `rewrite.yml` recipes for `STANDARDIZE` and `RETIRE` plays.
+- Generates `run_rewrite.sh` to execute `mvn rewrite:run` across Java repositories, migrating topic strings, property values, and class types deterministically.
+
+---
+
+## 9. Enterprise Scalability: Connectors & Incremental Caching
+
+- **GitLab Connector**: [gitlab.py](file:///Users/mahesh/Dev/bootcamps/convergence-factory/src/convergence_factory/connectors/gitlab.py) ingests GitLab inventory structures and syncs shallow clones.
+- **SHA-256 Incremental Caching**: [flow.py](file:///Users/mahesh/Dev/bootcamps/convergence-factory/pipelines/flow.py) hashes source trees and reuses extracted facts in `scan_cache`, achieving 100% cache hits on clean repeat runs.
+- **Visual Topology**: [report.py](file:///Users/mahesh/Dev/bootcamps/convergence-factory/src/convergence_factory/report.py) embeds real-time Mermaid.js wiring diagrams and live client-side search into the published redundancy map.
