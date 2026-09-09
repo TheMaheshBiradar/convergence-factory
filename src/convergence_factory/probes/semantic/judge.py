@@ -8,9 +8,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import os
 import re
-from typing import Dict, List, Optional
 import urllib.request
+from typing import Dict, List, Optional
+
 
 from convergence_factory.core.store import Store
 
@@ -79,11 +81,12 @@ class HeuristicJudge(Judge):
 class RestJudge(Judge):
     """Pairwise judge delegating to a self-hosted LLM endpoint (vLLM, Ollama, etc.)."""
 
-    def __init__(self, endpoint: str = "http://localhost:11434/api/generate",
-                 model: str = "llama3", fallback: Optional[Judge] = None):
-        self.endpoint = endpoint
-        self.model = model
+    def __init__(self, endpoint: Optional[str] = None,
+                 model: Optional[str] = None, fallback: Optional[Judge] = None):
+        self.endpoint = endpoint or os.environ.get("CONVERGENCE_LLM_ENDPOINT") or os.environ.get("LLM_ENDPOINT") or "http://localhost:11434/api/generate"
+        self.model = model or os.environ.get("CONVERGENCE_LLM_MODEL") or os.environ.get("LLM_MODEL") or "llama3"
         self.fallback = fallback or HeuristicJudge()
+
 
     def evaluate(self, candidate: dict, summary_a: str, summary_b: str,
                  owner_a: str, owner_b: str) -> JudgeResult:

@@ -79,12 +79,23 @@ def cmd_run(args):
     print(f"  candidate pairs={len(candidates)}")
 
     if getattr(args, "judge", False):
-        print("[judge] running pairwise semantic judge")
-        candidates = judge_candidates(store, candidates)
+        use_llm = getattr(args, "llm", False) or bool(os.environ.get("CONVERGENCE_LLM_ENDPOINT"))
+        if use_llm:
+            from .semantic.judge import RestJudge
+            judge_impl = RestJudge(
+                endpoint=getattr(args, "llm_endpoint", None),
+                model=getattr(args, "llm_model", None)
+            )
+            print(f"[judge] running pairwise semantic judge via LLM ({judge_impl.model} @ {judge_impl.endpoint})")
+        else:
+            judge_impl = None
+            print("[judge] running pairwise semantic judge (heuristic engine)")
+        candidates = judge_candidates(store, candidates, judge=judge_impl)
         confirmed = [c for c in candidates if c.get("confirmed")]
         print(f"  confirmed duplicate pairs={len(confirmed)} of {len(candidates)}")
         g = graph_mod.promote_candidates(g, candidates, store)
         print(f"  total clusters after promotion={len(g['clusters'])}")
+
 
     print("[report] rendering redundancy map")
     summary = report_mod.render(store, g, candidates, args.out)
@@ -174,8 +185,20 @@ def cmd_judge(args):
             extract(store, s)
 
     candidates = recall(store)
-    evaluated = judge_candidates(store, candidates)
+    use_llm = getattr(args, "llm", False) or bool(os.environ.get("CONVERGENCE_LLM_ENDPOINT"))
+    if use_llm:
+        from .semantic.judge import RestJudge
+        judge_impl = RestJudge(
+            endpoint=getattr(args, "llm_endpoint", None),
+            model=getattr(args, "llm_model", None)
+        )
+        print(f"[judge] evaluating candidates via LLM ({judge_impl.model} @ {judge_impl.endpoint})")
+    else:
+        judge_impl = None
+        print("[judge] evaluating candidates via heuristic engine")
+    evaluated = judge_candidates(store, candidates, judge=judge_impl)
     store.close()
+
 
     print("\n=== SEMANTIC PAIRWISE JUDGE VERDICTS ===")
     for c in evaluated:
@@ -262,6 +285,9 @@ def main(argv=None):
     r.add_argument("--all", action="store_true", help="run everything: pairwise judge, CI/CD ratchets, and rewrite recipes")
     r.add_argument("--judge", action="store_true", help="run pairwise judge to confirm and promote candidates")
 
+    r.add_argument("--llm", action="store_true", help="use live LLM server for judge instead of heuristic engine")
+    r.add_argument("--llm-endpoint", default=None, help="LLM REST endpoint (default: http://localhost:11434/api/generate or $CONVERGENCE_LLM_ENDPOINT)")
+    r.add_argument("--llm-model", default=None, help="LLM model name (default: llama3 or $CONVERGENCE_LLM_MODEL)")
     r.add_argument("--ratchet", action="store_true", help="generate one-way governance ratchets")
     r.add_argument("--rewrite", action="store_true", help="generate OpenRewrite refactoring recipes")
     r.add_argument("--inventory", default=None, help="path to GitLab inventory JSON")
@@ -285,7 +311,11 @@ def main(argv=None):
     j = sub.add_parser("judge", help="evaluate semantic candidates via pairwise judge")
     j.add_argument("root", nargs="?", default=None)
     j.add_argument("--out", default=DEFAULT_OUT)
+    j.add_argument("--llm", action="store_true", help="use live LLM server for judge")
+    j.add_argument("--llm-endpoint", default=None, help="LLM REST endpoint (default: http://localhost:11434/api/generate or $CONVERGENCE_LLM_ENDPOINT)")
+    j.add_argument("--llm-model", default=None, help="LLM model name (default: llama3 or $CONVERGENCE_LLM_MODEL)")
     j.set_defaults(func=cmd_judge)
+
 
     rw = sub.add_parser("rewrite", help="generate OpenRewrite refactoring recipes from clusters")
     rw.add_argument("root", nargs="?", default=None)
