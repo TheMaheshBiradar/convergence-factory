@@ -200,6 +200,24 @@ def cmd_rewrite(args):
     return 0
 
 
+def cmd_heal(args):
+    root = args.root or DEFAULT_REPOS
+    from .heal import run_self_healing
+    print(f"[self-heal] running automated convergence healing on {root}")
+    report = run_self_healing(root, cluster_id=args.cluster)
+    print("\n=== SELF-HEALING EXECUTION REPORT ===")
+    print(f"  Initial duplicate clusters : {report.initial_clusters}")
+    print(f"  Remediated actions         : {len(report.actions)}")
+    print(f"  Total opportunity recovered: {report.total_recovered}")
+    for act in report.actions:
+        print(f"  · [{act.play}] {act.target_resource} -> {act.canonical_resource}")
+        print(f"      Modified files  : {len(act.files_modified)}")
+        print(f"      Ratchets locked : {len(act.ratchets_installed)}")
+    print(f"  Remaining clusters         : {report.remaining_clusters}")
+    print(f"  All clusters healed        : {'YES' if report.all_healed else 'PARTIAL'}")
+    return 0
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="convergence_factory")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -237,6 +255,11 @@ def main(argv=None):
     rw.add_argument("root", nargs="?", default=None)
     rw.add_argument("--out", default=DEFAULT_OUT)
     rw.set_defaults(func=cmd_rewrite)
+
+    hl = sub.add_parser("heal", help="automatically refactor duplicate clusters and lock CI ratchets")
+    hl.add_argument("root", nargs="?", default=None)
+    hl.add_argument("--cluster", default=None, help="target specific cluster ID to heal")
+    hl.set_defaults(func=cmd_heal)
 
     args = p.parse_args(argv)
     return args.func(args)
