@@ -106,6 +106,7 @@ The following external libraries and analyzers interface with the Convergence Fa
 | **SchemaCrawler** | Oracle / PostgreSQL | Graphviz, SVG | ✅ Linter rules | ✅ Orphan tables | **Live DB Catalog**: Traverses foreign keys, live database schemas, and flags orphan database tables. |
 | **Knip** | JS / TS / React | CLI, JSON | ❌ | ✅ Unused exports | **Dead Code Signal**: Identifies unused exports, dependencies, and dead components in frontend modules. |
 | **ArchUnit** | Java | PlantUML, Text | ✅ `FreezingArchRule` | ❌ | **Governance Ratchet**: Enforces Java architectural boundaries in CI/CD via unit tests. |
+| **Graphify (graphifyy)** | Polyglot (Tree-sitter) | `graph.json`, `graph.html` | ✅ Path constraints | ✅ Disconnected / God nodes | **Deep Code Knowledge Graph**: Builds intra-repo call and import graphs from AST; provides `graph.json` schema interoperability with Convergence Factory. |
 
 ---
 
