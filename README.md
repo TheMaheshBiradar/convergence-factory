@@ -142,15 +142,59 @@ PYTHONPATH=src python3 -m convergence_factory heal
 | `python3 -m convergence_factory heal` | Runs the closed-loop autonomous refactor-and-verify loop. |
 | `python3 -m convergence_factory serve` | Launches a local HTTP preview server for the generated Redundancy Map. |
 
+---
+
+## 🤖 Connecting to LLMs (Local & Cloud)
+
+Convergence Factory features a **dual-mode AI architecture**: run 100% offline with zero dependencies (deterministic heuristic engine), or connect to any self-hosted or cloud LLM.
+
+### 1. Local Ollama (Free, Private, Zero Cloud Calls)
+If you have Ollama running locally (`http://localhost:11434`):
+```bash
+# Using CLI flags:
+convergence-factory run --judge --llm --llm-model llama3.1:latest
+
+# Or evaluate candidates directly:
+convergence-factory judge --llm --llm-model llama3.1:latest
+```
+
+### 2. OpenAI / Azure / Groq / LiteLLM (Chat Completions API)
+Pass your chat completion endpoint, model name, and API key:
+
+```bash
+# Direct CLI one-liner:
+convergence-factory run --judge --llm \
+    --llm-endpoint "https://api.openai.com/v1/chat/completions" \
+    --llm-model "gpt-4o-mini" \
+    --llm-key "sk-proj-YOUR_API_KEY"
+```
+
+### 3. Environment Variables (Recommended for Security)
+Avoid putting API keys in terminal history:
+```bash
+export CONVERGENCE_LLM_ENDPOINT="https://api.openai.com/v1/chat/completions"
+export CONVERGENCE_LLM_MODEL="gpt-4o-mini"
+export CONVERGENCE_LLM_KEY="sk-proj-YOUR_API_KEY"
+
+# Runs full pipeline with LLM automatically:
+convergence-factory run --all
+```
+
+#### Provider Examples:
+* **Azure OpenAI**: `--llm-endpoint "https://<resource>.openai.azure.com/openai/deployments/<deployment>/chat/completions?api-version=2024-02-15-preview"`
+* **Groq**: `--llm-endpoint "https://api.groq.com/openai/v1/chat/completions"` `--llm-model "llama-3.3-70b-versatile"`
+* **vLLM / Gateway**: `--llm-endpoint "http://my-gpu:8000/v1/chat/completions"` `--llm-model "qwen2.5-coder-32b"`
+
+> [!NOTE]
+> **Graceful Fallback**: If an LLM endpoint is unreachable or times out, Convergence Factory automatically falls back to its deterministic heuristic engine without crashing.
+
+---
+
 ### Sharper probes (optional)
 
 ```bash
 pip install -e ".[sql,config,orchestration]"   # sqlglot, pyyaml, prefect
 ```
-
-Point `RestEmbedder`, `RestSummarizer`, and `RestJudge`
-at your self-hosted models for the semantic layer; the `Hashing`/`Heuristic`
-defaults keep local runs dependency-free and reproducible.
 
 ## Confidence tiers
 
@@ -158,4 +202,5 @@ Every fact carries a tier — `HIGH` (literal/deterministic / code clone), `MED`
 (config-resolved / embedding similarity / judge-confirmed), `LOW` (unconfirmed candidate recall). The
 report's tier filter serves three audiences: exec (HIGH),
 prioritization (+MED), exploratory (all).
+
 
