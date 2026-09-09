@@ -1,0 +1,112 @@
+"""CLI entry point. `python -m convergence_factory <command>`.
+
+Commands:
+  run     [root] [--out DIR]   full pipeline -> redundancy map (default: fixtures)
+  census  [root]               list the project manifest only
+  eval    [root] [--expected]  run the calibration eval
+"""
+from __future__ import annotations
+
+import argparse
+import os
+
+from . import census as census_mod
+from . import graph as graph_mod
+from . import report as report_mod
+from .eval import format_report
+from .eval import run as eval_run
+from .runner import extract
+from .semantic.probe import recall
+from .store import Store
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_REPO_ROOT = os.path.dirname(os.path.dirname(_HERE))
+DEFAULT_REPOS = os.path.join(_REPO_ROOT, "fixtures", "repos")
+DEFAULT_EXPECTED = os.path.join(_REPO_ROOT, "fixtures", "expected")
+DEFAULT_OUT = os.path.join(_REPO_ROOT, ".factory")
+
+
+def cmd_run(args):
+    root = args.root or DEFAULT_REPOS
+    os.makedirs(args.out, exist_ok=True)
+    db_path = os.path.join(args.out, "factory.db")
+    if os.path.exists(db_path):
+        os.remove(db_path)
+    store = Store(db_path)
+
+    print(f"[census] scanning {root}")
+    scans = census_mod.scan(root)
+    for s in scans:
+        print(f"  · {s.project.id:<16} langs={','.join(s.project.langs):<12} "
+              f"owner={s.project.owner_team:<12} primary={s.primary.name}")
+
+    print("[extract] running plugins")
+    totals = {"integration": 0, "deps": 0, "gaps": 0, "skipped": 0, "modules": 0}
+    for s in scans:
+        st = extract(store, s)
+        for k in totals:
+            totals[k] += st[k]
+    print(f"  modules={totals['modules']} integration={totals['integration']} "
+          f"deps={totals['deps']} gaps={totals['gaps']} skipped={totals['skipped']}")
+
+    print("[graph] building similarity graph + clustering")
+    g = graph_mod.build(store)
+    print(f"  clusters={len(g['clusters'])} edges={len(g['edges'])}")
+
+    print("[semantic] recall (candidates only)")
+    candidates = recall(store)
+    print(f"  candidate pairs={len(candidates)}")
+
+    print("[report] rendering redundancy map")
+    summary = report_mod.render(store, g, candidates, args.out)
+    store.close()
+
+    print("\n=== REDUNDANCY MAP ===")
+    for c in g["clusters"]:
+        members = ", ".join(m.split(":")[0] for m in c["members"])
+        print(f"  [{c['play']:<11}] {c['label']:<34} tier={c['tier']:<4} "
+              f"score={c['score']:<3} :: {members}")
+    print(f"\nresolution rate: {summary['resolution_rate']}%   "
+          f"(gaps tracked: {summary['gaps']})")
+    print(f"site: {summary['site']}")
+    return 0
+
+
+def cmd_census(args):
+    root = args.root or DEFAULT_REPOS
+    for s in census_mod.scan(root):
+        p = s.project
+        print(f"{p.id:<18} langs={','.join(p.langs):<14} loc={p.loc:<6} "
+              f"owner={p.owner_team:<12} primary={s.primary.name}")
+    return 0
+
+
+def cmd_eval(args):
+    root = args.root or DEFAULT_REPOS
+    results = eval_run(root, args.expected or DEFAULT_EXPECTED)
+    print(format_report(results))
+    worst = min((r["recall"] for r in results), default=1.0)
+    print(f"\nlowest recall: {worst}")
+    return 0
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="convergence_factory")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    r = sub.add_parser("run", help="full pipeline -> redundancy map")
+    r.add_argument("root", nargs="?", default=None)
+    r.add_argument("--out", default=DEFAULT_OUT)
+    r.set_defaults(func=cmd_run)
+
+    c = sub.add_parser("census", help="project manifest only")
+    c.add_argument("root", nargs="?", default=None)
+    c.set_defaults(func=cmd_census)
+
+    e = sub.add_parser("eval", help="calibration eval")
+    e.add_argument("root", nargs="?", default=None)
+    e.add_argument("--expected", default=None)
+    e.set_defaults(func=cmd_eval)
+
+    args = p.parse_args(argv)
+    return args.func(args)

@@ -1,0 +1,7 @@
+{
+  "repo": "py-orders",
+  "integration": [
+    ["PRODUCES", "KAFKA_TOPIC", "order.created"],
+    ["WRITES", "SQL_TABLE", "customers"]
+  ]
+}

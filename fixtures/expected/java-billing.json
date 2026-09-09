@@ -1,0 +1,7 @@
+{
+  "repo": "java-billing",
+  "integration": [
+    ["PRODUCES", "KAFKA_TOPIC", "order.created"],
+    ["READS", "SQL_TABLE", "customers"]
+  ]
+}
