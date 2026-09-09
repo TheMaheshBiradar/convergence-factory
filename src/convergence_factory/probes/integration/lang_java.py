@@ -335,15 +335,17 @@ class JavaPlugin(LanguagePlugin):
                             edges.add((p, target_p))
 
             # check direct references within same package
+            words = set(re.findall(r"\b[A-Za-z0-9_]+\b", src))
             for target_p, (t_pkg, t_types) in file_types.items():
                 if target_p == p:
                     continue
                 if t_pkg == pkg and pkg:
                     for t in t_types:
-                        if re.search(r"\b" + re.escape(t) + r"\b", src):
+                        if t in words:
                             edges.add((p, target_p))
 
         return round(len(edges) / (n * (n - 1)), 3)
+
 
 
 register(JavaPlugin())

@@ -45,15 +45,21 @@ class LanguagePlugin:
 
 # --- small shared filesystem helpers ---
 
+_IGNORED_DIRS = {
+    ".git", "node_modules", ".venv", "venv", "env", "target", "build",
+    "dist", ".gradle", ".idea", ".vscode", "vendor", "__pycache__"
+}
+
+
 def walk_files(repo_path: str, exts: tuple) -> List[str]:
     out = []
-    for root, _dirs, files in os.walk(repo_path):
-        if "/.git" in root:
-            continue
+    for root, dirs, files in os.walk(repo_path):
+        dirs[:] = [d for d in dirs if d not in _IGNORED_DIRS and not (d.startswith(".") and d != ".")]
         for f in files:
             if f.endswith(exts):
                 out.append(os.path.join(root, f))
     return out
+
 
 
 def read(path: str) -> str:
