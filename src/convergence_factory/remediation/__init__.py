@@ -16,6 +16,8 @@ from .ratchets import (
 from .refactoring import (
     generate_all_rewrite_recipes,
     generate_class_migration_recipe,
+    generate_endpoint_standardization_recipe,
+    generate_table_standardization_recipe,
     generate_topic_standardization_recipe,
 )
 
@@ -29,6 +31,8 @@ __all__ = [
     "generate_import_linter_contract",
     "generate_all_rewrite_recipes",
     "generate_class_migration_recipe",
+    "generate_endpoint_standardization_recipe",
+    "generate_table_standardization_recipe",
     "generate_topic_standardization_recipe",
     "HealingAction",
     "HealingReport",
