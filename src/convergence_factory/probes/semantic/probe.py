@@ -40,8 +40,23 @@ def recall(store: Store, embedder: Embedder = None, summarizer: Summarizer = Non
             module_id=m.id, summary=text, embedding_ref=f"vec:{m.id}", tier="MED"))
     store.add_summaries(summaries)
 
+    module_proj = {m.id: m.project_id for m in store.modules()}
+    module_name = {m.id: m.name for m in store.modules()}
+
     candidates = []
     for a, b in combinations(sorted(vectors), 2):
+        if a == b:
+            continue
+        # Exclude self-mappings: modules belonging to the same project
+        proj_a = module_proj.get(a) or (a.split(":")[0] if ":" in a else a)
+        proj_b = module_proj.get(b) or (b.split(":")[0] if ":" in b else b)
+        if proj_a and proj_b and proj_a == proj_b:
+            continue
+        name_a = module_name.get(a, a)
+        name_b = module_name.get(b, b)
+        if name_a and name_b and name_a == name_b and proj_a == proj_b:
+            continue
+
         sim = cosine(vectors[a], vectors[b])
         if sim >= low_threshold:
             candidates.append({

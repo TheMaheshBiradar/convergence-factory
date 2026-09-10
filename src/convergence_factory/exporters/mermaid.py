@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+import os
 import re
 from typing import List, Optional, Set, Tuple
 
@@ -22,13 +23,20 @@ def _safe_label(val: str, max_len: int = 60) -> str:
     return s
 
 
-def generate_mermaid_diagram(store: Store, clusters: List[dict], max_edges: int = 150) -> str:
+def generate_mermaid_diagram(store: Store, clusters: List[dict], max_edges: int = 1000) -> str:
     """Generates a clean, deduplicated Mermaid.js flow diagram representing resource wiring.
 
     Automatically prioritizes shared resources (cross-module coupling) and detected
-    convergence clusters while enforcing an edge budget to prevent browser layout chokes
-    and Mermaid text buffer overflow.
+    convergence clusters. Defaults to 1,000 edges so multi-project estates display completely
+    without truncation. Configurable via CONVERGENCE_MAX_MERMAID_EDGES env var or max_edges parameter.
     """
+    env_limit = os.environ.get("CONVERGENCE_MAX_MERMAID_EDGES")
+    if env_limit:
+        try:
+            max_edges = int(env_limit)
+        except ValueError:
+            pass
+
     facts = store.integration_facts()
     if not facts:
         return "graph LR\n  empty[\"No integration facts recorded in FactStore\"]"

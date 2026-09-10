@@ -84,9 +84,43 @@ class TestReportVisualizer(unittest.TestCase):
             self.assertIn("href=\"error.txt\"", content)
             self.assertIn("Framework Issues", content)
 
+            # Assert Export graph.json button is present
+            self.assertIn("href=\"graph.json\"", content)
+            self.assertIn("Export graph.json", content)
+
         # Assert site/error.txt exists
         site_error_file = os.path.join(os.path.dirname(res["site"]), "error.txt")
         self.assertTrue(os.path.exists(site_error_file))
+
+    def test_second_table_excludes_self_mapping_to_own_project(self):
+        """Verify that candidate table rejects self-mappings within the same project."""
+        p2 = Project(id="p2", repo_url="/p2", owner_team="team-b")
+        self.store.add_project(p2)
+
+        # Module in same project p1
+        m_same = Module(id="p1:client", project_id="p1", path="/p1/client", name="srv-a", lang="javascript")
+        # Module in different project p2
+        m_diff = Module(id="p2:srv", project_id="p2", path="/p2", name="srv-b", lang="python")
+        self.store.add_module(m_same)
+        self.store.add_module(m_diff)
+
+        candidates = [
+            # Self mapping (same project p1)
+            {"a": "p1:srv", "b": "p1:client", "similarity": 0.95, "tier": "HIGH"},
+            # Cross project mapping (p1 and p2)
+            {"a": "p1:srv", "b": "p2:srv", "similarity": 0.88, "tier": "HIGH"},
+        ]
+        res = render(self.store, {"clusters": []}, candidates, self.temp_dir)
+        with open(res["site"]) as fh:
+            html_text = fh.read()
+
+        # The candidate table should contain cross-project pair p1 <-> p2
+        self.assertIn("srv-b", html_text)
+        # The candidate table should NOT contain self-mapping p1:srv <-> p1:client
+        # which would have displayed as srv-a <-> srv-a
+        cand_section = html_text.split('<table id="candidates">')[1]
+        self.assertNotIn("srv-a</b> &harr; <b>srv-a", cand_section)
+
 
 
     def test_mermaid_deduplication_and_budget(self):

@@ -147,6 +147,7 @@ def render(store: Store, graph: dict, candidates: List[dict], out_dir: str) -> d
     module_name = {m.id: m.name for m in store.modules()}
     module_lang = {m.id: m.lang for m in store.modules()}
     module_path = {m.id: m.path for m in store.modules()}
+    module_proj = {m.id: m.project_id for m in store.modules()}
     summaries = {row["module_id"]: row["summary"] for row in store.db.execute("SELECT module_id, summary FROM capability_summaries")}
 
     site = os.path.join(out_dir, "site")
@@ -276,16 +277,43 @@ def render(store: Store, graph: dict, candidates: List[dict], out_dir: str) -> d
       </tr>""")
 
     cand_rows = []
+    seen_cand_pairs = set()
     for c in candidates:
-        a_name = module_name.get(c['a'], c['a'])
-        b_name = module_name.get(c['b'], c['b'])
-        sum_a = summaries.get(c['a'], "")
-        sum_b = summaries.get(c['b'], "")
+        a_id = c['a']
+        b_id = c['b']
+        if a_id == b_id:
+            continue
+
+        # Skip candidates already confirmed and promoted to Table 1 (Clusters)
+        if c.get("confirmed") is True:
+            continue
+
+        proj_a = module_proj.get(a_id) or (a_id.split(":")[0] if ":" in a_id else a_id)
+        proj_b = module_proj.get(b_id) or (b_id.split(":")[0] if ":" in b_id else b_id)
+        # Skip self-mapping: modules within the same project
+        if proj_a and proj_b and proj_a == proj_b:
+            continue
+
+        pair_key = tuple(sorted([a_id, b_id]))
+        if pair_key in seen_cand_pairs:
+            continue
+        seen_cand_pairs.add(pair_key)
+
+        a_name = module_name.get(a_id, a_id)
+        b_name = module_name.get(b_id, b_id)
+        if a_name == b_name and proj_a == proj_b:
+            continue
+
+        disp_a = f"{a_name} ({proj_a})" if a_name == b_name else a_name
+        disp_b = f"{b_name} ({proj_b})" if a_name == b_name else b_name
+
+        sum_a = summaries.get(a_id, "")
+        sum_b = summaries.get(b_id, "")
 
         cand_tip = _esc(
             f"<b>Candidate Pair:</b><br>"
-            f"• {a_name}: {_esc(sum_a or 'No summary')}<br>"
-            f"• {b_name}: {_esc(sum_b or 'No summary')}<br>"
+            f"• {disp_a}: {_esc(sum_a or 'No summary')}<br>"
+            f"• {disp_b}: {_esc(sum_b or 'No summary')}<br>"
             f"<b>Similarity:</b> {c['similarity']}"
         )
 
@@ -295,7 +323,7 @@ def render(store: Store, graph: dict, candidates: List[dict], out_dir: str) -> d
         cand_rows.append(f"""
       <tr>
         <td class="trim-col has-tip" data-tip="{cand_tip}">
-          <b>{_esc(a_name)}</b> &harr; <b>{_esc(b_name)}</b>
+          <b>{_esc(disp_a)}</b> &harr; <b>{_esc(disp_b)}</b>
         </td>
         <td class="num">{c['similarity']}</td>
         <td><span class="tier t-{_TIER_LABEL.get(c['tier'], 'med')}">{c['tier']}</span></td>
@@ -504,7 +532,10 @@ _TEMPLATE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
     <a href="error.txt" target="_blank" class="btn-error-txt">Inspect error.txt ↗</a>
   </div>
 
-  <h2>Integration Topology &amp; Wiring Graph</h2>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin:2.2rem 0 .3rem;">
+    <h2 style="margin:0;">Integration Topology &amp; Wiring Graph</h2>
+    <a href="graph.json" download="graph.json" class="btn-error-txt" title="Download graph.json for Cytoscape, Gephi, or Graphify exploration">📥 Export graph.json</a>
+  </div>
   <div class="graph-card">
     <pre class="mermaid">
 {mermaid_graph}
