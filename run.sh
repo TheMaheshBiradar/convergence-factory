@@ -57,6 +57,7 @@ HELP
     exit 0
 }
 
+ACTION="run"
 ARGS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -64,6 +65,14 @@ while [[ $# -gt 0 ]]; do
       usage
       ;;
     --all)
+      shift
+      ;;
+    --census|census)
+      ACTION="census"
+      shift
+      ;;
+    --serve|serve)
+      AUTO_SERVE=true
       shift
       ;;
     --out)
@@ -88,10 +97,6 @@ while [[ $# -gt 0 ]]; do
       LLM_KEY="$2"
       shift 2
       ;;
-    --serve)
-      AUTO_SERVE=true
-      shift
-      ;;
     *)
       if [[ -z "$TARGET_DIR" && ! "$1" =~ ^-- ]]; then
         TARGET_DIR="$1"
@@ -102,6 +107,18 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ "$ACTION" == "census" ]]; then
+  echo "🔍 Running Project Census..."
+  if [[ -n "$TARGET_DIR" ]]; then
+    echo "📂 Target Directory: ${TARGET_DIR}"
+    python3 -m convergence_factory census "$TARGET_DIR" "${ARGS[@]}"
+  else
+    echo "📂 Target Directory: fixtures/repos (bundled fixtures)"
+    python3 -m convergence_factory census "${ARGS[@]}"
+  fi
+  exit 0
+fi
 
 # If environment variable or model flag is set, auto-enable LLM
 if [[ -n "$LLM_ENDPOINT" || -n "$LLM_MODEL" || -n "$LLM_KEY" ]]; then
@@ -139,6 +156,12 @@ if [[ "$ENABLE_LLM" == true ]]; then
 fi
 
 echo "🚀 Running Convergence Factory Pipeline..."
+if [[ -n "$TARGET_DIR" ]]; then
+  echo "📂 Target Repositories: ${TARGET_DIR}"
+else
+  echo "📂 Target Repositories: fixtures/repos (default reference fixtures)"
+  echo "💡 Tip: To run on your own projects, pass your folder path: ./run.sh /path/to/my/projects"
+fi
 "${CMD[@]}" "${ARGS[@]}"
 
 echo ""

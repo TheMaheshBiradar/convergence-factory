@@ -159,16 +159,40 @@ def cmd_run(args):
 def cmd_census(args):
     setup_logger(verbose=getattr(args, "verbose", False))
     root = args.root or DEFAULT_REPOS
+    root_abs = os.path.abspath(root)
+
+    print(f"\n=== CONVERGENCE FACTORY · PROJECT CENSUS ===")
+    print(f"Target Directory : {root_abs}")
     if getattr(args, "inventory", None):
+        print(f"GitLab Inventory : {args.inventory}")
         with open(args.inventory) as f:
             items = parse_inventory(json.load(f))
         scans = census_mod.scan_inventory(items, root)
     else:
         scans = census_mod.scan(root)
+
+    if not scans:
+        print("\n  ⚠️  No projects detected under this path.")
+        print("  Tips:")
+        print("    1. Pass the absolute or relative path to your repositories folder:")
+        print("       ./run.sh /path/to/your/projects --census")
+        print("    2. Ensure the target subdirectories contain build manifests (pom.xml, package.json, requirements.txt, pyproject.toml)")
+        print("       or source files (.java, .py, .js, .ts, .sql).")
+        return 0
+
+    print(f"\nDiscovered {len(scans)} project(s):\n")
+    print(f"  {'PROJECT ID':<26} {'LANGUAGES':<14} {'LOC':<7} {'OWNER':<14} {'PRIMARY PLUGIN':<16} {'PATH'}")
+    print(f"  {'-'*26} {'-'*14} {'-'*7} {'-'*14} {'-'*16} {'-'*30}")
     for s in scans:
         p = s.project
-        print(f"{p.id:<18} langs={','.join(p.langs):<14} loc={p.loc:<6} "
-              f"owner={p.owner_team:<12} primary={s.primary.name}")
+        rel = os.path.relpath(s.repo_path, root_abs)
+        rel_disp = "." if rel == "." else rel
+        langs_str = ",".join(p.langs)[:13]
+        print(f"  {p.id:<26} {langs_str:<14} {p.loc:<7} {p.owner_team:<14} {s.primary.name:<16} {rel_disp}")
+
+    print(f"\nTotal: {len(scans)} project(s) ready for convergence analysis.")
+    print("To run convergence analysis on these projects:")
+    print(f"  ./run.sh {root_abs} --all --serve\n")
     return 0
 
 
