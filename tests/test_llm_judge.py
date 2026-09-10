@@ -11,6 +11,7 @@ from convergence_factory.probes.semantic.judge import (
     HeuristicJudge,
     JudgeResult,
     RestJudge,
+    _build_auth_headers,
     _parse_json_object,
     judge_candidates,
     test_llm_connection as run_test_llm_connection,
@@ -186,6 +187,30 @@ class TestLLMJudge(unittest.TestCase):
         self.assertIn("Calling judge for 'p1:srv' <-> 'p2:srv'", output)
         self.assertIn("[CONFIRMED]", output)
         store.close()
+
+    def test_auth_headers_normalization_and_bearer_handling(self):
+        """Verify tokens with or without Bearer prefix are normalized correctly."""
+        # 1. Raw token: adds Bearer to Authorization, sets api-key and x-api-key
+        h1 = _build_auth_headers("my-internal-token-123")
+        self.assertEqual(h1["Authorization"], "Bearer my-internal-token-123")
+        self.assertEqual(h1["api-key"], "my-internal-token-123")
+        self.assertEqual(h1["x-api-key"], "my-internal-token-123")
+
+        # 2. Token with 'Bearer ' already present: does NOT produce 'Bearer Bearer'
+        h2 = _build_auth_headers("Bearer my-internal-token-123")
+        self.assertEqual(h2["Authorization"], "Bearer my-internal-token-123")
+        self.assertEqual(h2["api-key"], "my-internal-token-123")
+        self.assertEqual(h2["x-api-key"], "my-internal-token-123")
+
+        # 3. Lowercase 'bearer '
+        h3 = _build_auth_headers("bearer my-internal-token-123")
+        self.assertEqual(h3["Authorization"], "bearer my-internal-token-123")
+        self.assertEqual(h3["api-key"], "my-internal-token-123")
+        self.assertEqual(h3["x-api-key"], "my-internal-token-123")
+
+        # 4. None or empty
+        self.assertEqual(_build_auth_headers(None), {})
+        self.assertEqual(_build_auth_headers("   "), {})
 
 
 if __name__ == "__main__":

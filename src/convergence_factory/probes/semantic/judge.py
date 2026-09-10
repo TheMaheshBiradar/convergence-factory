@@ -142,6 +142,33 @@ class HeuristicJudge(Judge):
                            reason=reason, play=play)
 
 
+def _build_auth_headers(api_key: Optional[str]) -> Dict[str, str]:
+    """Normalizes API key/token into HTTP headers.
+
+    Accepts raw tokens ('abc123xyz') or pre-formatted bearer strings ('Bearer abc123xyz').
+    Emits Authorization: Bearer <token> (preventing 'Bearer Bearer' duplicate prefixing)
+    as well as api-key and x-api-key headers for enterprise internal gateways (Azure, Kong, Envoy).
+    """
+    if not api_key:
+        return {}
+    token = api_key.strip()
+    if not token:
+        return {}
+
+    if token.lower().startswith("bearer "):
+        raw_token = token[7:].strip()
+        auth_header = token
+    else:
+        raw_token = token
+        auth_header = f"Bearer {token}"
+
+    headers = {"Authorization": auth_header}
+    if raw_token:
+        headers["api-key"] = raw_token
+        headers["x-api-key"] = raw_token
+    return headers
+
+
 class RestJudge(Judge):
     """Pairwise judge delegating to an LLM endpoint (Ollama, vLLM, OpenAI, Azure, Groq, LiteLLM)."""
 
@@ -200,8 +227,7 @@ Respond strictly in JSON format with keys:
             }
 
         headers = {"Content-Type": "application/json"}
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+        headers.update(_build_auth_headers(self.api_key))
 
         payload = json.dumps(payload_dict).encode("utf-8")
         req = urllib.request.Request(self.endpoint, data=payload, headers=headers)
@@ -271,7 +297,7 @@ def test_llm_connection(
         try:
             base = ep.split("/api/")[0] if "/api/" in ep else "http://localhost:11434"
             tags_url = f"{base}/api/tags"
-            req_tags = urllib.request.Request(tags_url)
+            req_tags = urllib.request.Request(tags_url, headers=_build_auth_headers(key))
             with urllib.request.urlopen(req_tags, timeout=3.0) as resp:
                 tags_data = json.loads(resp.read().decode("utf-8"))
                 for m in tags_data.get("models", []):
@@ -326,8 +352,7 @@ def test_llm_connection(
         }
 
     headers = {"Content-Type": "application/json"}
-    if key:
-        headers["Authorization"] = f"Bearer {key}"
+    headers.update(_build_auth_headers(key))
 
     payload = json.dumps(payload_dict).encode("utf-8")
     req = urllib.request.Request(ep, data=payload, headers=headers)
