@@ -59,9 +59,56 @@ class TestReportVisualizer(unittest.TestCase):
         with open(res["site"]) as fh:
             content = fh.read()
             self.assertIn("mermaid", content)
+            self.assertIn("maxTextSize: 5000000", content)
             self.assertIn("filterSearch", content)
             self.assertIn("events.order", content)
             self.assertIn("STANDARDIZE", content)
+
+    def test_mermaid_deduplication_and_budget(self):
+        """Verify identical facts are deduplicated into single edges and edge budget triggers Estate Summary."""
+        # Add 10 duplicate facts from same module to same topic
+        dups = [
+            IntegrationFact(
+                module_id="p1:srv", direction="PRODUCES",
+                resource_type="KAFKA_TOPIC", resource_id="events.order",
+                tier="HIGH", provenance=Provenance(file=f"file_{i}.py")
+            )
+            for i in range(10)
+        ]
+        self.store.add_integration(dups)
+
+        # Generate diagram with max_edges=1
+        diag = generate_mermaid_diagram(self.store, [], max_edges=1)
+        # Should only have 1 produces edge, not 10
+        edge_count = diag.count("-->|produces|")
+        self.assertEqual(edge_count, 1)
+
+        # Now add 5 distinct facts and check max_edges budget notice
+        distinct_facts = [
+            IntegrationFact(
+                module_id="p1:srv", direction="CALLS",
+                resource_type="HTTP_ENDPOINT", resource_id=f"/api/v1/resource/{i}",
+                tier="MED", provenance=Provenance(file="client.py")
+            )
+            for i in range(5)
+        ]
+        self.store.add_integration(distinct_facts)
+        budget_diag = generate_mermaid_diagram(self.store, [], max_edges=3)
+        self.assertIn("Estate Summary", budget_diag)
+        self.assertIn("Showing top 3 core shared resources", budget_diag)
+
+    def test_mermaid_special_characters_sanitization(self):
+        """Verify complex URLs with query params, braces, and quotes do not break Mermaid syntax."""
+        f = IntegrationFact(
+            module_id="p1:srv", direction="CALLS",
+            resource_type="HTTP_ENDPOINT", resource_id="/api/orders/{id}?active=true&sort=\"desc\"",
+            tier="LOW", provenance=Provenance(file="api.py")
+        )
+        self.store.add_integration([f])
+        diag = generate_mermaid_diagram(self.store, [])
+        # Quotes should be escaped or stripped in label
+        self.assertNotIn('sort="desc"', diag)
+        self.assertIn("sort='desc'", diag)
 
 
 if __name__ == "__main__":

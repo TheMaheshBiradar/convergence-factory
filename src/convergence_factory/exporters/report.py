@@ -106,7 +106,13 @@ _TEMPLATE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <title>Redundancy Map · Convergence Factory</title>
 <script type="module">
   import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
-  mermaid.initialize({{ startOnLoad: true, theme: 'neutral' }});
+  mermaid.initialize({{
+    startOnLoad: true,
+    theme: 'neutral',
+    maxTextSize: 5000000,
+    securityLevel: 'loose',
+    flowchart: {{ useMaxWidth: true, htmlLabels: true }}
+  }});
 </script>
 <style>
   :root{{--bg:#F3F5F8;--surface:#fff;--surface2:#EAEEF3;--ink:#15202C;--muted:#5C6A78;
