@@ -54,16 +54,21 @@ ENABLE_LLM="${CONFIG_ENABLE_LLM:-false}"
 LLM_ENDPOINT="${CONFIG_LLM_ENDPOINT:-${CONVERGENCE_LLM_ENDPOINT:-}}"
 LLM_MODEL="${CONFIG_LLM_MODEL:-${CONVERGENCE_LLM_MODEL:-}}"
 LLM_KEY="${CONFIG_LLM_KEY:-${CONVERGENCE_LLM_KEY:-${OPENAI_API_KEY:-}}}"
+LLM_TIMEOUT=""
 AUTO_SERVE=false
 
 usage() {
     cat << 'HELP'
 Usage: ./run.sh [REPOS_DIR] [OPTIONS]
+       ./run.sh test-llm [OPTIONS]
 
 Run the complete Convergence Factory pipeline across heterogeneous repositories.
 
 Arguments:
   REPOS_DIR                 Path to repository folder (default: bundled fixtures/repos)
+
+Commands:
+  test-llm                  Test connection, latency, and response from configured LLM
 
 Options:
   --all                     Run all pipeline stages (enabled by default)
@@ -72,6 +77,8 @@ Options:
   --llm-endpoint <url>      LLM chat/completions endpoint (e.g. http://localhost:11434/api/generate)
   --llm-model <model>       LLM model name (e.g. llama3.1:latest, gpt-4o-mini)
   --llm-key <token>         LLM API key or Bearer token (for OpenAI, Azure, Groq)
+  --llm-timeout <sec>       Timeout per LLM request in seconds (default: 60)
+  --test-llm                Run the LLM connectivity and latency diagnostic
   --serve                   Automatically open and serve the interactive Redundancy Map in browser
   -h, --help                Show this help message
 
@@ -79,16 +86,19 @@ Examples:
   # 1. Run everything on reference portfolio:
   ./run.sh
 
-  # 2. Run with your local Ollama model:
+  # 2. Test LLM connectivity and benchmark response latency:
+  ./run.sh test-llm
+
+  # 3. Run with your local Ollama model:
   ./run.sh --llm --llm-model llama3.1:latest
 
-  # 3. Run on custom repositories folder with Cloud LLM:
+  # 4. Run on custom repositories folder with Cloud LLM:
   ./run.sh /path/to/my_repos --llm \
       --llm-endpoint "https://api.openai.com/v1/chat/completions" \
       --llm-model "gpt-4o-mini" \
       --llm-key "sk-proj-..."
 
-  # 4. Run and immediately preview the visual report in your browser:
+  # 5. Run and immediately preview the visual report in your browser:
   ./run.sh --serve
 HELP
     exit 0
@@ -106,6 +116,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --census|census)
       ACTION="census"
+      shift
+      ;;
+    --test-llm|test-llm)
+      ACTION="test-llm"
       shift
       ;;
     --serve|serve)
@@ -134,6 +148,10 @@ while [[ $# -gt 0 ]]; do
       LLM_KEY="$2"
       shift 2
       ;;
+    --llm-timeout)
+      LLM_TIMEOUT="$2"
+      shift 2
+      ;;
     *)
       if [[ -z "$TARGET_DIR" && ! "$1" =~ ^-- ]]; then
         TARGET_DIR="$1"
@@ -157,20 +175,38 @@ if [[ "$ACTION" == "census" ]]; then
   exit 0
 fi
 
-# If environment variable or model flag is set, auto-enable LLM
-if [[ -n "$LLM_ENDPOINT" || -n "$LLM_MODEL" || -n "$LLM_KEY" ]]; then
-  ENABLE_LLM=true
-fi
-
-# Detect local Ollama default model if --llm passed without explicit model
-if [[ "$ENABLE_LLM" == true && -z "$LLM_MODEL" && -z "$LLM_ENDPOINT" ]]; then
+# Detect local Ollama default model if not explicitly provided
+if [[ -z "$LLM_MODEL" && -z "$LLM_ENDPOINT" ]]; then
   if command -v ollama >/dev/null 2>&1 && curl -s http://localhost:11434/api/tags >/dev/null 2>&1; then
     FIRST_MODEL=$(curl -s http://localhost:11434/api/tags | grep -o '"name":"[^"]*"' | head -n 1 | cut -d'"' -f4 || true)
     if [[ -n "$FIRST_MODEL" ]]; then
       LLM_MODEL="$FIRST_MODEL"
-      echo "🤖 Auto-detected local Ollama model: ${LLM_MODEL}"
     fi
   fi
+fi
+
+if [[ "$ACTION" == "test-llm" ]]; then
+  echo "🔍 Running LLM Connectivity Diagnostic..."
+  CMD=(python3 -m convergence_factory test-llm)
+  if [[ -n "$LLM_ENDPOINT" ]]; then
+    CMD+=(--endpoint "$LLM_ENDPOINT")
+  fi
+  if [[ -n "$LLM_MODEL" ]]; then
+    CMD+=(--model "$LLM_MODEL")
+  fi
+  if [[ -n "$LLM_KEY" ]]; then
+    CMD+=(--key "$LLM_KEY")
+  fi
+  if [[ -n "$LLM_TIMEOUT" ]]; then
+    CMD+=(--timeout "$LLM_TIMEOUT")
+  fi
+  "${CMD[@]}" "${ARGS[@]}"
+  exit $?
+fi
+
+# If environment variable or model flag is set, auto-enable LLM
+if [[ -n "$LLM_ENDPOINT" || -n "$LLM_MODEL" || -n "$LLM_KEY" ]]; then
+  ENABLE_LLM=true
 fi
 
 CMD=(python3 -m convergence_factory run)
@@ -189,6 +225,9 @@ if [[ "$ENABLE_LLM" == true ]]; then
   fi
   if [[ -n "$LLM_KEY" ]]; then
     CMD+=(--llm-api-key "$LLM_KEY")
+  fi
+  if [[ -n "$LLM_TIMEOUT" ]]; then
+    CMD+=(--llm-timeout "$LLM_TIMEOUT")
   fi
 fi
 

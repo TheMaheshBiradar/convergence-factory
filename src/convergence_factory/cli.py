@@ -96,14 +96,31 @@ def cmd_run(args):
     if getattr(args, "judge", False):
         use_llm = getattr(args, "llm", False) or bool(os.environ.get("CONVERGENCE_LLM_ENDPOINT"))
         if use_llm:
-            from .semantic.judge import RestJudge
-            judge_impl = RestJudge(
-                endpoint=getattr(args, "llm_endpoint", None),
-                model=getattr(args, "llm_model", None),
-                api_key=getattr(args, "llm_api_key", None)
-            )
+            from .semantic.judge import RestJudge, test_llm_connection
+            ep = getattr(args, "llm_endpoint", None)
+            mdl = getattr(args, "llm_model", None)
+            key = getattr(args, "llm_api_key", None)
+            timeout = getattr(args, "llm_timeout", 60.0)
 
-            print(f"[judge] running pairwise semantic judge via LLM ({judge_impl.model} @ {judge_impl.endpoint})")
+            print(f"[judge] running preflight connectivity check for LLM ({mdl or 'default'} @ {ep or 'default'})...")
+            preflight = test_llm_connection(endpoint=ep, model=mdl, api_key=key, timeout=min(timeout, 20.0))
+            if not preflight["ok"]:
+                print(f"  [WARN] LLM preflight check failed: {preflight.get('error')}")
+                if preflight.get("available_models"):
+                    print(f"  [WARN] Installed Ollama models: {', '.join(preflight['available_models'])}")
+                if preflight.get("suggestion"):
+                    print(f"  [WARN] Suggestion: {preflight['suggestion']}")
+                print("  [WARN] Falling back to deterministic heuristic judge for this run.")
+                judge_impl = None
+            else:
+                print(f"  [judge] LLM preflight OK (model: {preflight['model']}, latency: {preflight['latency_s']}s)")
+                judge_impl = RestJudge(
+                    endpoint=preflight["endpoint"],
+                    model=preflight["model"],
+                    api_key=key,
+                    timeout=timeout
+                )
+                print(f"[judge] running pairwise semantic judge via live LLM ({judge_impl.model})")
         else:
             judge_impl = None
             print("[judge] running pairwise semantic judge (heuristic engine)")
@@ -242,20 +259,36 @@ def cmd_judge(args):
     candidates = recall(store)
     use_llm = getattr(args, "llm", False) or bool(os.environ.get("CONVERGENCE_LLM_ENDPOINT"))
     if use_llm:
-        from .semantic.judge import RestJudge
-        judge_impl = RestJudge(
-            endpoint=getattr(args, "llm_endpoint", None),
-            model=getattr(args, "llm_model", None),
-            api_key=getattr(args, "llm_api_key", None)
-        )
+        from .semantic.judge import RestJudge, test_llm_connection
+        ep = getattr(args, "llm_endpoint", None)
+        mdl = getattr(args, "llm_model", None)
+        key = getattr(args, "llm_api_key", None)
+        timeout = getattr(args, "llm_timeout", 60.0)
 
-        print(f"[judge] evaluating candidates via LLM ({judge_impl.model} @ {judge_impl.endpoint})")
+        print(f"[judge] running preflight connectivity check for LLM ({mdl or 'default'} @ {ep or 'default'})...")
+        preflight = test_llm_connection(endpoint=ep, model=mdl, api_key=key, timeout=min(timeout, 20.0))
+        if not preflight["ok"]:
+            print(f"  [WARN] LLM preflight check failed: {preflight.get('error')}")
+            if preflight.get("available_models"):
+                print(f"  [WARN] Installed Ollama models: {', '.join(preflight['available_models'])}")
+            if preflight.get("suggestion"):
+                print(f"  [WARN] Suggestion: {preflight['suggestion']}")
+            print("  [WARN] Falling back to deterministic heuristic judge.")
+            judge_impl = None
+        else:
+            print(f"  [judge] LLM preflight OK (model: {preflight['model']}, latency: {preflight['latency_s']}s)")
+            judge_impl = RestJudge(
+                endpoint=preflight["endpoint"],
+                model=preflight["model"],
+                api_key=key,
+                timeout=timeout
+            )
+            print(f"[judge] evaluating candidates via live LLM ({judge_impl.model})")
     else:
         judge_impl = None
         print("[judge] evaluating candidates via heuristic engine")
     evaluated = judge_candidates(store, candidates, judge=judge_impl)
     store.close()
-
 
     print("\n=== SEMANTIC PAIRWISE JUDGE VERDICTS ===")
     for c in evaluated:
@@ -264,6 +297,40 @@ def cmd_judge(args):
               f"conf={c.get('confidence', 0.0):<4} play={c.get('play', 'LEAVE'):<11}")
         print(f"               Reason: {c.get('reason', '')}")
     return 0
+
+
+def cmd_test_llm(args):
+    from .semantic.judge import test_llm_connection
+    print("\n=== CONVERGENCE FACTORY - LLM CONNECTIVITY DIAGNOSTIC ===")
+    ep = getattr(args, "endpoint", None) or getattr(args, "llm_endpoint", None)
+    mdl = getattr(args, "model", None) or getattr(args, "llm_model", None)
+    key = getattr(args, "api_key", None) or getattr(args, "llm_api_key", None)
+    timeout = getattr(args, "timeout", 30.0)
+
+    print(f"Target Endpoint : {ep or 'default (http://localhost:11434/api/generate or env)'}")
+    print(f"Target Model    : {mdl or 'default (llama3.1:latest or env)'}")
+    print(f"Timeout Limit   : {timeout}s")
+    print("\nSending probe test request to LLM server...")
+
+    res = test_llm_connection(endpoint=ep, model=mdl, api_key=key, timeout=timeout)
+    if res["ok"]:
+        print(f"\n✅ SUCCESS: LLM responded in {res['latency_s']}s!")
+        print(f"Resolved Model  : {res['model']}")
+        print(f"Resolved URL    : {res['endpoint']}")
+        if res.get("available_models"):
+            print(f"Server Models   : {', '.join(res['available_models'])}")
+        print("\nParsed Sample Verdict:")
+        for k, v in res["response"].items():
+            print(f"  {k:<12}: {v}")
+        return 0
+    else:
+        print(f"\n❌ FAILED: LLM probe failed.")
+        print(f"Error           : {res.get('error')}")
+        if res.get("available_models"):
+            print(f"Available Models: {', '.join(res['available_models'])}")
+        if res.get("suggestion"):
+            print(f"💡 Suggestion   : {res.get('suggestion')}")
+        return 1
 
 
 def cmd_rewrite(args):
@@ -346,6 +413,7 @@ def main(argv=None):
     r.add_argument("--llm-endpoint", default=None, help="LLM REST endpoint (default: http://localhost:11434/api/generate or $CONVERGENCE_LLM_ENDPOINT)")
     r.add_argument("--llm-model", default=None, help="LLM model name (default: llama3 or $CONVERGENCE_LLM_MODEL)")
     r.add_argument("--llm-api-key", "--llm-key", dest="llm_api_key", default=None, help="LLM API key or auth token (or $CONVERGENCE_LLM_KEY / $OPENAI_API_KEY)")
+    r.add_argument("--llm-timeout", type=float, default=60.0, help="timeout in seconds per LLM request (default: 60.0)")
     r.add_argument("--ratchet", action="store_true", help="generate one-way governance ratchets")
     r.add_argument("--rewrite", action="store_true", help="generate OpenRewrite refactoring recipes")
     r.add_argument("-v", "--verbose", action="store_true", help="enable verbose debug logging")
@@ -373,9 +441,17 @@ def main(argv=None):
     j.add_argument("--out", default=DEFAULT_OUT)
     j.add_argument("--llm", action="store_true", help="use live LLM server for judge")
     j.add_argument("--llm-endpoint", default=None, help="LLM REST endpoint (default: http://localhost:11434/api/generate or $CONVERGENCE_LLM_ENDPOINT)")
-    j.add_argument("--llm-model", default=None, help="LLM model name (default: llama3 or $CONVERGENCE_LLM_MODEL)")
+    j.add_argument("--llm-model", default=None, help="LLM model name (default: llama3.1:latest or $CONVERGENCE_LLM_MODEL)")
     j.add_argument("--llm-api-key", "--llm-key", dest="llm_api_key", default=None, help="LLM API key or auth token (or $CONVERGENCE_LLM_KEY / $OPENAI_API_KEY)")
+    j.add_argument("--llm-timeout", type=float, default=60.0, help="timeout in seconds per LLM request (default: 60.0)")
     j.set_defaults(func=cmd_judge)
+
+    tl = sub.add_parser("test-llm", help="test connectivity, latency and JSON response from LLM endpoint")
+    tl.add_argument("--endpoint", "--llm-endpoint", dest="endpoint", default=None, help="LLM endpoint URL")
+    tl.add_argument("--model", "--llm-model", dest="model", default=None, help="LLM model name")
+    tl.add_argument("--api-key", "--key", "--llm-key", dest="api_key", default=None, help="LLM API key")
+    tl.add_argument("--timeout", type=float, default=30.0, help="timeout in seconds (default: 30.0)")
+    tl.set_defaults(func=cmd_test_llm)
 
 
 
