@@ -15,7 +15,7 @@ from convergence_factory.probes.integration.base import REGISTRY, is_ignored_dir
 from convergence_factory.runner import ProjectScan
 from convergence_factory.core.schema import Project
 
-_SRC_EXTS = (".py", ".java", ".sql", ".ts", ".js", ".go", ".rb")
+_SRC_EXTS = (".py", ".java", ".sql", ".ts", ".js", ".go", ".rb", ".jsp", ".jspf", ".tag", ".tld", ".jsx", ".tsx")
 
 
 _MANIFEST_FILES = {
@@ -73,19 +73,20 @@ def scan_project(repo_path: str, project_id: Optional[str] = None, repo_url: str
         return None
     langs = sorted({c for _p, d in detections for c in d["claims"]})
     primary, det = max(detections, key=lambda pd: pd[1].get("score", 0))
+    plugins = [p for p, _d in detections]
     loc = _loc(repo_path)
     owner = _owner(repo_path, root_dir=root_dir)
     LOGGER.info(
-        "Census '%s': assigned primary plugin '%s' (claims: %s, candidates: [%s], loc: %d, owner: %s)",
-        name, primary.name, langs,
+        "Census '%s': assigned primary plugin '%s' (active plugins: [%s], claims: %s, loc: %d, owner: %s)",
+        name, primary.name,
         ", ".join(f"{p.name}:{d.get('score', 0)}" for p, d in detections),
-        loc, owner
+        langs, loc, owner
     )
     project = Project(
         id=name, name=os.path.basename(repo_path.rstrip("/")), repo_url=repo_url or f"local:{name}",
         owner_team=owner, langs=langs, loc=loc, activity="unknown",
         deploy_target=det.get("build", ""))
-    return ProjectScan(project=project, repo_path=repo_path, primary=primary)
+    return ProjectScan(project=project, repo_path=repo_path, primary=primary, plugins=plugins)
 
 
 def find_project_dirs(root: str, max_depth: int = 5) -> List[str]:

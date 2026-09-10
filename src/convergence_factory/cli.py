@@ -181,14 +181,16 @@ def cmd_census(args):
         return 0
 
     print(f"\nDiscovered {len(scans)} project(s):\n")
-    print(f"  {'PROJECT ID':<26} {'LANGUAGES':<14} {'LOC':<7} {'OWNER':<14} {'PRIMARY PLUGIN':<16} {'PATH'}")
-    print(f"  {'-'*26} {'-'*14} {'-'*7} {'-'*14} {'-'*16} {'-'*30}")
+    print(f"  {'PROJECT ID':<24} {'LANGUAGES':<20} {'LOC':<7} {'OWNER':<14} {'ACTIVE PLUGINS':<22} {'PATH'}")
+    print(f"  {'-'*24} {'-'*20} {'-'*7} {'-'*14} {'-'*22} {'-'*30}")
     for s in scans:
         p = s.project
         rel = os.path.relpath(s.repo_path, root_abs)
         rel_disp = "." if rel == "." else rel
-        langs_str = ",".join(p.langs)[:13]
-        print(f"  {p.id:<26} {langs_str:<14} {p.loc:<7} {p.owner_team:<14} {s.primary.name:<16} {rel_disp}")
+        langs_str = ",".join(p.langs)[:19]
+        active_plugins = [pl.name for pl in s.plugins] if getattr(s, "plugins", None) else [s.primary.name]
+        plugins_str = ",".join(active_plugins)[:21]
+        print(f"  {p.id:<24} {langs_str:<20} {p.loc:<7} {p.owner_team:<14} {plugins_str:<22} {rel_disp}")
 
     print(f"\nTotal: {len(scans)} project(s) ready for convergence analysis.")
     print("To run convergence analysis on these projects:")

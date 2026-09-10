@@ -78,12 +78,20 @@ class JavaPlugin(LanguagePlugin):
     lang = "java"
     backend = "tree-sitter" if _TS else "regex"
 
+    _JSP_ACTION_RE = re.compile(r'(?:action|<c:url\s+[^>]*value)\s*=\s*["\']([^"\'#]+)["\']', re.I)
+    _JSP_HREF_RE = re.compile(r'href\s*=\s*["\'](/[^"\'#]+)["\']', re.I)
+    _JSP_FETCH_RE = re.compile(r'''(?:fetch|axios\.(?:get|post|put|delete))\s*\(\s*['"]([^'"]+)['"]''', re.I)
+
     def detect(self, repo_path):
-        files = walk_files(repo_path, (".java",))
-        if not files:
+        java_files = walk_files(repo_path, (".java",))
+        jsp_files = walk_files(repo_path, (".jsp", ".jspf", ".tag", ".tld"))
+        if not java_files and not jsp_files:
             return None
+        claims = ["java"]
+        if jsp_files:
+            claims.append("jsp")
         build = "maven" if os.path.exists(os.path.join(repo_path, "pom.xml")) else "gradle"
-        return {"claims": ["java"], "build": build, "score": len(files)}
+        return {"claims": claims, "build": build, "score": len(java_files) + len(jsp_files)}
 
     def modules(self, repo_path, project_id):
         name = os.path.basename(repo_path.rstrip("/"))
@@ -109,11 +117,39 @@ class JavaPlugin(LanguagePlugin):
                 self._facts_ast(src, rel, module.id, config, bundle)
             else:
                 self._facts_regex(src, rel, module.id, config, bundle)
+        for path in walk_files(repo_path, (".jsp", ".jspf", ".tag")):
+            src = read(path)
+            rel = os.path.relpath(path, repo_path)
+            self._facts_jsp(src, rel, module.id, bundle)
         bundle.dependencies.extend(self._deps(module.id, repo_path))
         bundle.metrics.append(ModuleMetric(
             module_id=module.id, name="coupling",
             value=self._coupling(repo_path)))
         return bundle
+
+    def _facts_jsp(self, src: str, rel: str, mid: str, bundle: FactBundle):
+        lines = src.splitlines()
+        for idx, line in enumerate(lines, 1):
+            snippet = line.strip()[:80]
+            prov = Provenance(file=rel, line=idx, snippet=snippet)
+            for m in self._JSP_ACTION_RE.finditer(line):
+                url = m.group(1).strip()
+                if url and not url.startswith("javascript:") and not url.startswith("${"):
+                    bundle.integration.append(IntegrationFact(
+                        module_id=mid, direction="CALLS", resource_type="HTTP_ENDPOINT",
+                        resource_id=url, tier="HIGH", provenance=prov))
+            for m in self._JSP_HREF_RE.finditer(line):
+                url = m.group(1).strip()
+                if url and url.startswith("/") and not url.startswith("${"):
+                    bundle.integration.append(IntegrationFact(
+                        module_id=mid, direction="CALLS", resource_type="HTTP_ENDPOINT",
+                        resource_id=url, tier="HIGH", provenance=prov))
+            for m in self._JSP_FETCH_RE.finditer(line):
+                url = m.group(1).strip()
+                if url:
+                    bundle.integration.append(IntegrationFact(
+                        module_id=mid, direction="CALLS", resource_type="HTTP_ENDPOINT",
+                        resource_id=url, tier="HIGH", provenance=prov))
 
     # --- backend 1: tree-sitter AST ---------------------------------------
 

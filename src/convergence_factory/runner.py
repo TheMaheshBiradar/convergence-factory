@@ -8,7 +8,8 @@ so one bad plugin never kills the pipeline.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import List
 
 from .logger import LOGGER
 from .schema import (validate_api, validate_dependency, validate_integration,
@@ -21,27 +22,32 @@ class ProjectScan:
     project: object      # schema.Project
     repo_path: str
     primary: object      # LanguagePlugin instance
+    plugins: List[object] = field(default_factory=list)
 
 
 def extract(store: Store, scan: ProjectScan, verbose: bool = False) -> dict:
     t0 = time.time()
+    active_plugins = scan.plugins if getattr(scan, "plugins", None) else [scan.primary]
+    plugin_names = ", ".join(p.name for p in active_plugins)
+    plugin_label = f"plugin '{plugin_names}'" if len(active_plugins) == 1 else f"plugin(s) '{plugin_names}'"
     LOGGER.info(
-        "Extracting project '%s' -> assigned plugin '%s' (path: %s)",
-        scan.project.id, scan.primary.name, scan.repo_path
+        "Extracting project '%s' -> assigned %s (path: %s)",
+        scan.project.id, plugin_label, scan.repo_path
     )
     store.add_project(scan.project)
     stats = {"integration": 0, "deps": 0, "gaps": 0, "skipped": 0, "modules": 0}
-    modules = scan.primary.modules(scan.repo_path, scan.project.id)
-    LOGGER.debug("  Project '%s' discovered %d module(s)", scan.project.id, len(modules))
-    for module in modules:
-        store.add_module(module)
-        stats["modules"] += 1
-        t_mod = time.time()
-        bundle = scan.primary.facts(module, scan.repo_path)
-        LOGGER.debug(
-            "  Module '%s' processed by '%s' in %.3fs (raw facts: %d)",
-            module.id, scan.primary.name, time.time() - t_mod, len(bundle.integration)
-        )
+    for plugin in active_plugins:
+        modules = plugin.modules(scan.repo_path, scan.project.id)
+        LOGGER.debug("  Project '%s' [%s] discovered %d module(s)", scan.project.id, plugin.name, len(modules))
+        for module in modules:
+            store.add_module(module)
+            stats["modules"] += 1
+            t_mod = time.time()
+            bundle = plugin.facts(module, scan.repo_path)
+            LOGGER.debug(
+                "  Module '%s' processed by '%s' in %.3fs (raw facts: %d)",
+                module.id, plugin.name, time.time() - t_mod, len(bundle.integration)
+            )
 
         good_int = []
         for f in bundle.integration:
@@ -79,8 +85,9 @@ def extract(store: Store, scan: ProjectScan, verbose: bool = False) -> dict:
         if bundle.metrics:
             store.add_metrics(bundle.metrics)
     elapsed = time.time() - t0
+    finish_label = f"plugin '{plugin_names}'" if len(active_plugins) == 1 else f"plugin(s) '{plugin_names}'"
     LOGGER.info(
-        "Finished extraction: project '%s' -> plugin '%s' in %.3fs (modules=%d, facts=%d, deps=%d, gaps=%d)",
-        scan.project.id, scan.primary.name, elapsed, stats["modules"], stats["integration"], stats["deps"], stats["gaps"]
+        "Finished extraction: project '%s' -> %s in %.3fs (modules=%d, facts=%d, deps=%d, gaps=%d)",
+        scan.project.id, finish_label, elapsed, stats["modules"], stats["integration"], stats["deps"], stats["gaps"]
     )
     return stats

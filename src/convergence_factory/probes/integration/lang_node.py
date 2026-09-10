@@ -19,7 +19,9 @@ from .base import LanguagePlugin, is_ignored_dir, read, register, walk_files
 
 _NODE_EXTS = (".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs")
 _HTTP_CALL_RE = re.compile(
-    r'''(?:fetch|axios\.(?:get|post|put|delete|patch)|http\.(?:get|request))\s*\(\s*['"]([^'"]+)['"]''')
+    r'''(?:fetch|(?:axios|http|httpClient|this\.http|this\.httpClient|client|api)\.(?:get|post|put|delete|patch|request))\s*\(\s*['"]([^'"]+)['"]''',
+    re.I
+)
 _KAFKA_TOPIC_RE = re.compile(r'''\btopics?\s*:\s*(\[[^\]]*\]|['"][^'"]+['"]|[A-Za-z_$][\w$]*)''')
 _SEND_RE = re.compile(r'\.(?:send|produce)\s*\(')
 
@@ -35,6 +37,19 @@ except Exception:                       # pragma: no cover
 def _excluded(path: str) -> bool:
     parts = set(os.path.normpath(path).split(os.sep))
     return any(is_ignored_dir(p) for p in parts)
+
+
+def _find_package_jsons(repo_path: str) -> List[str]:
+    """Finds root and non-ignored subdirectory package.json files (e.g. frontend, client)."""
+    found = []
+    root_pkg = os.path.join(repo_path, "package.json")
+    if os.path.exists(root_pkg):
+        found.append(root_pkg)
+    for p in walk_files(repo_path, (".json",)):
+        if os.path.basename(p) == "package.json" and not _excluded(p):
+            if p not in found:
+                found.append(p)
+    return found
 
 
 def _strlit(node) -> Optional[str]:
@@ -92,32 +107,54 @@ class NodePlugin(LanguagePlugin):
     backend = "tree-sitter" if _TS_JS else "regex"
 
     def detect(self, repo_path: str) -> Optional[dict]:
-        has_pkg = os.path.exists(os.path.join(repo_path, "package.json"))
+        pkg_files = _find_package_jsons(repo_path)
         node_files = [f for f in walk_files(repo_path, _NODE_EXTS) if not _excluded(f)]
-        if not has_pkg and not node_files:
+        if not pkg_files and not node_files:
             return None
-        claims = ["javascript", "typescript"] if any(
-            f.endswith((".ts", ".tsx")) for f in node_files) else ["javascript"]
-        return {"claims": claims, "build": "npm" if has_pkg else "none",
+        claims = ["javascript"]
+        if any(f.endswith((".ts", ".tsx")) for f in node_files):
+            claims.append("typescript")
+
+        # Inspect dependencies across package.json files for frontend frameworks
+        for pkg_path in pkg_files:
+            try:
+                data = json.loads(read(pkg_path))
+                all_deps = set()
+                all_deps.update(data.get("dependencies", {}).keys())
+                all_deps.update(data.get("devDependencies", {}).keys())
+                if any(d in all_deps for d in ("react", "react-dom", "react-scripts")):
+                    if "react" not in claims:
+                        claims.append("react")
+                if any(d.startswith("@angular/") for d in all_deps) or "angular" in all_deps:
+                    if "angular" not in claims:
+                        claims.append("angular")
+                if "vue" in all_deps:
+                    if "vue" not in claims:
+                        claims.append("vue")
+            except Exception:
+                pass
+
+        has_pkg = bool(pkg_files)
+        return {"claims": sorted(claims), "build": "npm" if has_pkg else "none",
                 "score": len(node_files) + (20 if has_pkg else 0)}
 
     def modules(self, repo_path: str, project_id: str) -> List[Module]:
         name = project_id
-        pkg = os.path.join(repo_path, "package.json")
-        if os.path.exists(pkg):
+        pkg_files = _find_package_jsons(repo_path)
+        if pkg_files:
             try:
-                name = json.loads(read(pkg)).get("name", project_id)
+                name = json.loads(read(pkg_files[0])).get("name", project_id)
             except Exception:
                 pass
         return [Module(id=f"{project_id}:node", project_id=project_id, path=repo_path,
                        name=name, kind="service", lang="javascript",
-                       build_system="npm" if os.path.exists(pkg) else "")]
+                       build_system="npm" if pkg_files else "")]
 
     def facts(self, module: Module, repo_path: str) -> FactBundle:
         bundle = FactBundle(module=module, source_ref=repo_path)
-        pkg = os.path.join(repo_path, "package.json")
+        pkg_files = _find_package_jsons(repo_path)
         pkg_deps: Set[str] = set()
-        if os.path.exists(pkg):
+        for pkg in pkg_files:
             try:
                 data = json.loads(read(pkg))
                 for scope, tier_scope in (("dependencies", "runtime"), ("devDependencies", "test")):
@@ -190,8 +227,10 @@ class NodePlugin(LanguagePlugin):
             elif has_kafka and callee.endswith(".subscribe"):
                 for topic, tier in self._topics(first, consts):
                     self._emit_topic(bundle, mid, "CONSUMES", topic, tier, prov)
-            # HTTP calls
-            elif callee == "fetch" or re.search(r'(?:axios|http|client|api)\.(?:get|post|put|delete|patch|request)$', callee):
+            # HTTP calls (fetch, axios, Angular http/httpClient, generic client)
+            elif (callee == "fetch" or
+                  re.search(r'(?:axios|http|httpClient|client|api)\.(?:get|post|put|delete|patch|request)$', callee, re.I) or
+                  re.search(r'this\.(?:http|httpClient)\.(?:get|post|put|delete|patch|request)$', callee, re.I)):
                 url = _strlit(first)
                 if url:
                     bundle.integration.append(IntegrationFact(
