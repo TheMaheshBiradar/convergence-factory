@@ -37,6 +37,12 @@ CONFIG_LLM_MODEL=""
 #    - Example: "sk-proj-..." or "Bearer ..."
 CONFIG_LLM_KEY=""
 
+#    Rate Limiting & Throttle Settings:
+#    - CONFIG_LLM_MAX_RETRIES: Maximum attempts on HTTP 429 rate limit (default: 3)
+#    - CONFIG_LLM_DELAY: Proactive delay in seconds between calls to avoid hitting rate limits (default: 0.0)
+CONFIG_LLM_MAX_RETRIES=""
+CONFIG_LLM_DELAY=""
+
 # ==============================================================================
 
 # Auto-source local .env file if present
@@ -55,6 +61,8 @@ LLM_ENDPOINT="${CONFIG_LLM_ENDPOINT:-${CONVERGENCE_LLM_ENDPOINT:-}}"
 LLM_MODEL="${CONFIG_LLM_MODEL:-${CONVERGENCE_LLM_MODEL:-}}"
 LLM_KEY="${CONFIG_LLM_KEY:-${CONVERGENCE_LLM_KEY:-${OPENAI_API_KEY:-}}}"
 LLM_TIMEOUT=""
+LLM_MAX_RETRIES="${CONFIG_LLM_MAX_RETRIES:-${CONVERGENCE_LLM_MAX_RETRIES:-}}"
+LLM_DELAY="${CONFIG_LLM_DELAY:-${CONVERGENCE_LLM_DELAY:-}}"
 AUTO_SERVE=false
 
 usage() {
@@ -78,6 +86,8 @@ Options:
   --llm-model <model>       LLM model name (e.g. llama3.1:latest, gpt-4o-mini)
   --llm-key <token>         LLM API key or Bearer token (for OpenAI, Azure, Groq)
   --llm-timeout <sec>       Timeout per LLM request in seconds (default: 60)
+  --llm-max-retries <n>     Max retries on HTTP 429 rate limit (default: 3)
+  --llm-delay <sec>         Proactive throttle delay between LLM calls in seconds (default: 0.0)
   --test-llm                Run the LLM connectivity and latency diagnostic
   --serve                   Automatically open and serve the interactive Redundancy Map in browser
   -h, --help                Show this help message
@@ -150,6 +160,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --llm-timeout)
       LLM_TIMEOUT="$2"
+      shift 2
+      ;;
+    --llm-max-retries)
+      LLM_MAX_RETRIES="$2"
+      shift 2
+      ;;
+    --llm-delay)
+      LLM_DELAY="$2"
       shift 2
       ;;
     *)
@@ -228,6 +246,12 @@ if [[ "$ENABLE_LLM" == true ]]; then
   fi
   if [[ -n "$LLM_TIMEOUT" ]]; then
     CMD+=(--llm-timeout "$LLM_TIMEOUT")
+  fi
+  if [[ -n "$LLM_MAX_RETRIES" ]]; then
+    CMD+=(--llm-max-retries "$LLM_MAX_RETRIES")
+  fi
+  if [[ -n "$LLM_DELAY" ]]; then
+    CMD+=(--llm-delay "$LLM_DELAY")
   fi
 fi
 

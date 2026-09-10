@@ -119,13 +119,15 @@ def cmd_run(args):
                     endpoint=preflight["endpoint"],
                     model=preflight["model"],
                     api_key=key,
-                    timeout=timeout
+                    timeout=timeout,
+                    max_retries=getattr(args, "llm_max_retries", None),
+                    delay=getattr(args, "llm_delay", None)
                 )
                 print(f"[judge] running pairwise semantic judge via live LLM ({judge_impl.model})")
         else:
             judge_impl = None
             print("[judge] running pairwise semantic judge (heuristic engine)")
-        candidates = judge_candidates(store, candidates, judge=judge_impl)
+        candidates = judge_candidates(store, candidates, judge=judge_impl, delay=getattr(args, "llm_delay", None))
         confirmed = [c for c in candidates if c.get("confirmed")]
         print(f"  confirmed duplicate pairs={len(confirmed)} of {len(candidates)}")
         g = graph_mod.promote_candidates(g, candidates, store)
@@ -295,13 +297,15 @@ def cmd_judge(args):
                 endpoint=preflight["endpoint"],
                 model=preflight["model"],
                 api_key=key,
-                timeout=timeout
+                timeout=timeout,
+                max_retries=getattr(args, "llm_max_retries", None),
+                delay=getattr(args, "llm_delay", None)
             )
             print(f"[judge] evaluating candidates via live LLM ({judge_impl.model})")
     else:
         judge_impl = None
         print("[judge] evaluating candidates via heuristic engine")
-    evaluated = judge_candidates(store, candidates, judge=judge_impl)
+    evaluated = judge_candidates(store, candidates, judge=judge_impl, delay=getattr(args, "llm_delay", None))
     store.close()
 
     print("\n=== SEMANTIC PAIRWISE JUDGE VERDICTS ===")
@@ -432,6 +436,8 @@ def main(argv=None):
     r.add_argument("--llm-model", default=None, help="LLM model name (default: llama3 or $CONVERGENCE_LLM_MODEL)")
     r.add_argument("--llm-api-key", "--llm-key", dest="llm_api_key", default=None, help="LLM API key or auth token (or $CONVERGENCE_LLM_KEY / $OPENAI_API_KEY)")
     r.add_argument("--llm-timeout", type=float, default=60.0, help="timeout in seconds per LLM request (default: 60.0)")
+    r.add_argument("--llm-max-retries", type=int, default=None, help="max retries when LLM returns HTTP 429 rate limit (default: 3 or $CONVERGENCE_LLM_MAX_RETRIES)")
+    r.add_argument("--llm-delay", type=float, default=None, help="proactive throttle delay in seconds between LLM judge requests (default: 0.0 or $CONVERGENCE_LLM_DELAY)")
     r.add_argument("--ratchet", action="store_true", help="generate one-way governance ratchets")
     r.add_argument("--rewrite", action="store_true", help="generate OpenRewrite refactoring recipes")
     r.add_argument("-v", "--verbose", action="store_true", help="enable verbose debug logging")
@@ -463,6 +469,8 @@ def main(argv=None):
     j.add_argument("--llm-model", default=None, help="LLM model name (default: llama3.1:latest or $CONVERGENCE_LLM_MODEL)")
     j.add_argument("--llm-api-key", "--llm-key", dest="llm_api_key", default=None, help="LLM API key or auth token (or $CONVERGENCE_LLM_KEY / $OPENAI_API_KEY)")
     j.add_argument("--llm-timeout", type=float, default=60.0, help="timeout in seconds per LLM request (default: 60.0)")
+    j.add_argument("--llm-max-retries", type=int, default=None, help="max retries when LLM returns HTTP 429 rate limit (default: 3 or $CONVERGENCE_LLM_MAX_RETRIES)")
+    j.add_argument("--llm-delay", type=float, default=None, help="proactive throttle delay in seconds between LLM judge requests (default: 0.0 or $CONVERGENCE_LLM_DELAY)")
     j.set_defaults(func=cmd_judge)
 
     tl = sub.add_parser("test-llm", help="test connectivity, latency and JSON response from LLM endpoint")

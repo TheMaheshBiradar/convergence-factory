@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import os
+import random
 import re
 import sys
 import time
@@ -169,6 +170,41 @@ def _build_auth_headers(api_key: Optional[str]) -> Dict[str, str]:
     return headers
 
 
+def _extract_retry_after(headers, default_sleep: float) -> float:
+    """Extracts wait duration in seconds from Retry-After or rate-limit reset headers."""
+    if not headers:
+        return default_sleep
+
+    # 1. retry-after-ms (Azure OpenAI, LiteLLM, enterprise gateways)
+    ms_val = headers.get("retry-after-ms")
+    if ms_val:
+        try:
+            return max(0.1, float(ms_val) / 1000.0)
+        except (ValueError, TypeError):
+            pass
+
+    # 2. Retry-After (seconds, e.g. '5' or '5.0')
+    retry_val = headers.get("Retry-After")
+    if retry_val:
+        try:
+            return max(0.1, float(retry_val))
+        except (ValueError, TypeError):
+            pass
+
+    # 3. x-ratelimit-reset-requests or x-ratelimit-reset-tokens or x-ratelimit-reset
+    for reset_header in ("x-ratelimit-reset-requests", "x-ratelimit-reset-tokens", "x-ratelimit-reset"):
+        reset_val = headers.get(reset_header)
+        if reset_val:
+            try:
+                sec = float(reset_val)
+                if sec > 0:
+                    return min(sec, 60.0)
+            except (ValueError, TypeError):
+                pass
+
+    return default_sleep
+
+
 class RestJudge(Judge):
     """Pairwise judge delegating to an LLM endpoint (Ollama, vLLM, OpenAI, Azure, Groq, LiteLLM)."""
 
@@ -176,13 +212,19 @@ class RestJudge(Judge):
                  model: Optional[str] = None,
                  api_key: Optional[str] = None,
                  fallback: Optional[Judge] = None,
-                 timeout: Optional[float] = None):
+                 timeout: Optional[float] = None,
+                 max_retries: Optional[int] = None,
+                 delay: Optional[float] = None):
         self.endpoint = endpoint or os.environ.get("CONVERGENCE_LLM_ENDPOINT") or os.environ.get("LLM_ENDPOINT") or "http://localhost:11434/api/generate"
         self.model = model or os.environ.get("CONVERGENCE_LLM_MODEL") or os.environ.get("LLM_MODEL") or "llama3.1:latest"
         self.api_key = api_key or os.environ.get("CONVERGENCE_LLM_KEY") or os.environ.get("OPENAI_API_KEY") or ""
         self.fallback = fallback or HeuristicJudge()
         env_timeout = os.environ.get("CONVERGENCE_LLM_TIMEOUT")
         self.timeout = timeout if timeout is not None else (float(env_timeout) if env_timeout else 60.0)
+        env_retries = os.environ.get("CONVERGENCE_LLM_MAX_RETRIES")
+        self.max_retries = max_retries if max_retries is not None else (int(env_retries) if env_retries else 3)
+        env_delay = os.environ.get("CONVERGENCE_LLM_DELAY")
+        self.delay = delay if delay is not None else (float(env_delay) if env_delay else 0.0)
         self.last_error: Optional[str] = None
 
     def evaluate(self, candidate: dict, summary_a: str, summary_b: str,
@@ -231,40 +273,68 @@ Respond strictly in JSON format with keys:
 
         payload = json.dumps(payload_dict).encode("utf-8")
         req = urllib.request.Request(self.endpoint, data=payload, headers=headers)
-        try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                if not is_chat_api and "error" in data:
-                    raise RuntimeError(f"Ollama error: {data['error']}")
-                if is_chat_api:
-                    content = data["choices"][0]["message"]["content"]
-                else:
-                    content = data.get("response", "{}")
-                body = _parse_json_object(content)
-                self.last_error = None
-                return JudgeResult(
-                    confirmed=bool(body.get("confirmed", False)),
-                    confidence=float(body.get("confidence", 0.5)),
-                    reason=str(body.get("reason", "LLM judged evaluation")),
-                    play=str(body.get("play", "LEAVE"))
-                )
-        except Exception as err:
-            self.last_error = str(err)
-            ERROR_TRACKER.record_warning(
-                phase="probe:semantic:judge",
-                source=f"{self.endpoint} (model: {self.model})",
-                warning_type="LLMCallFailure",
-                message=f"LLM call failed for '{candidate.get('a')}' <-> '{candidate.get('b')}': {err}",
-                details=str(err),
-                remediation="Ensure model server is running, model name matches, or increase timeout with --llm-timeout."
-            )
-            LOGGER.warning(
-                "RestJudge LLM call failed for '%s' <-> '%s': %s (falling back to heuristic judge)",
-                candidate.get("a"), candidate.get("b"), err
-            )
-            fallback_res = self.fallback.evaluate(candidate, summary_a, summary_b, owner_a, owner_b)
-            fallback_res.reason = f"[Fallback: {err}] {fallback_res.reason}"
-            return fallback_res
+
+        attempt = 0
+        last_err = None
+        while True:
+            try:
+                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    if not is_chat_api and "error" in data:
+                        raise RuntimeError(f"Ollama error: {data['error']}")
+                    if is_chat_api:
+                        content = data["choices"][0]["message"]["content"]
+                    else:
+                        content = data.get("response", "{}")
+                    body = _parse_json_object(content)
+                    self.last_error = None
+                    return JudgeResult(
+                        confirmed=bool(body.get("confirmed", False)),
+                        confidence=float(body.get("confidence", 0.5)),
+                        reason=str(body.get("reason", "LLM judged evaluation")),
+                        play=str(body.get("play", "LEAVE"))
+                    )
+            except urllib.error.HTTPError as err:
+                if err.code == 429 and attempt < self.max_retries:
+                    attempt += 1
+                    base_sleep = (2.0 ** attempt) + random.uniform(0.1, 0.6)
+                    sleep_sec = _extract_retry_after(err.headers, base_sleep)
+                    sleep_sec = min(sleep_sec, 60.0)
+                    msg = f"\n    ⏳ [429 Rate Limit] Enterprise gateway throttled. Awaiting {sleep_sec:.1f}s (retry {attempt}/{self.max_retries})... "
+                    print(msg, end="", flush=True)
+                    LOGGER.warning("HTTP 429 Rate Limit from %s. Sleeping %.2fs (attempt %d/%d)",
+                                   self.endpoint, sleep_sec, attempt, self.max_retries)
+                    time.sleep(sleep_sec)
+                    continue
+                last_err = err
+                break
+            except Exception as err:
+                last_err = err
+                break
+
+        self.last_error = str(last_err)
+        is_429 = isinstance(last_err, urllib.error.HTTPError) and last_err.code == 429
+        warning_type = "RateLimitExhausted" if is_429 else "LLMCallFailure"
+        remedy = (
+            f"Gateway rate limit reached after {self.max_retries} retries. Use --llm-delay (current: {self.delay}s) or increase --llm-max-retries."
+            if is_429
+            else "Ensure model server is running, model name matches, or increase timeout with --llm-timeout."
+        )
+        ERROR_TRACKER.record_warning(
+            phase="probe:semantic:judge",
+            source=f"{self.endpoint} (model: {self.model})",
+            warning_type=warning_type,
+            message=f"LLM call failed for '{candidate.get('a')}' <-> '{candidate.get('b')}': {last_err}",
+            details=str(last_err),
+            remediation=remedy
+        )
+        LOGGER.warning(
+            "RestJudge LLM call failed for '%s' <-> '%s': %s (falling back to heuristic judge)",
+            candidate.get("a"), candidate.get("b"), last_err
+        )
+        fallback_res = self.fallback.evaluate(candidate, summary_a, summary_b, owner_a, owner_b)
+        fallback_res.reason = f"[Fallback: {last_err}] {fallback_res.reason}"
+        return fallback_res
 
 
 def test_llm_connection(
@@ -400,6 +470,16 @@ def test_llm_connection(
             }
 
     except urllib.error.HTTPError as e:
+        if e.code == 429:
+            retry_sec = _extract_retry_after(e.headers, 2.0)
+            return {
+                "ok": False,
+                "endpoint": ep,
+                "model": mdl,
+                "available_models": available_models,
+                "error": f"HTTP 429 Too Many Requests: Gateway rate limit exceeded (Retry-After: {retry_sec:.1f}s)",
+                "suggestion": f"Enterprise gateway is throttling requests. Use --llm-delay (e.g. --llm-delay {max(0.5, retry_sec):.1f}) or wait {retry_sec:.1f}s before retrying."
+            }
         err_msg = f"HTTP {e.code}: {e.reason}"
         try:
             body = e.read().decode("utf-8")
@@ -443,10 +523,11 @@ def test_llm_connection(
         }
 
 
-def judge_candidates(arg1, arg2, judge: Optional[Judge] = None, interactive: bool = True) -> List[dict]:
+def judge_candidates(arg1, arg2, judge: Optional[Judge] = None, interactive: bool = True, delay: Optional[float] = None) -> List[dict]:
     """Evaluates all recall candidate pairs and records judgments in the store.
 
     When interactive=True (default), prints live progress per candidate pair so the CLI user is never left without feedback.
+    Supports proactive throttle pacing between candidate pairs via delay (or judge.delay).
     """
     if isinstance(arg1, Store):
         store, candidates = arg1, arg2
@@ -456,6 +537,7 @@ def judge_candidates(arg1, arg2, judge: Optional[Judge] = None, interactive: boo
     summaries = {row["module_id"]: row["summary"] for row in store.db.execute("SELECT module_id, summary FROM capability_summaries")}
     owners = store.module_owner()
 
+    effective_delay = delay if delay is not None else getattr(judge, "delay", 0.0)
     total = len(candidates)
     results = []
     for idx, cand in enumerate(candidates, start=1):
@@ -490,6 +572,9 @@ def judge_candidates(arg1, arg2, judge: Optional[Judge] = None, interactive: boo
             "play": res.play,
             "owners": sorted({oa, ob})
         })
+
+        if effective_delay > 0 and idx < total:
+            time.sleep(effective_delay)
 
     return results
 
