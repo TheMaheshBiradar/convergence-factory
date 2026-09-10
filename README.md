@@ -6,6 +6,8 @@ opportunities. Built to answer the question off-the-shelf tools don't: *"which
 projects do the same thing?"* — across languages, including at the wiring level
 (the same Kafka topic, the same SQL table), not just copied code.
 
+![Convergence Factory — C4 System Context & Container Architecture](docs/images/system_architecture.png)
+
 See the architecture blueprint: [BLUEPRINT.md](file:///Users/mahesh/Dev/bootcamps/convergence-factory/BLUEPRINT.md) for the full architectural design.
 
 ## Design in one line
