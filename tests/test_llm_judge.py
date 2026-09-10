@@ -362,6 +362,88 @@ class TestLLMJudge(unittest.TestCase):
         self.assertGreaterEqual(elapsed, 0.04)
         store.close()
 
+    def test_rest_judge_prompt_construction(self):
+        """Verify RestJudge constructs rich DDD evaluation prompts with ownership, evidence, and token headroom."""
+        captured_payloads = []
+
+        class InspectHandler(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                content_len = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(content_len).decode("utf-8")
+                captured_payloads.append(json.loads(body))
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                resp = {
+                    "choices": [{
+                        "message": {
+                            "content": json.dumps({
+                                "confirmed": True,
+                                "confidence": 0.95,
+                                "reason": "Both modules implement identical payment gateway dispatch workflows. Recommend standardizing.",
+                                "play": "STANDARDIZE"
+                            })
+                        }
+                    }]
+                }
+                self.wfile.write(json.dumps(resp).encode("utf-8"))
+
+            def log_message(self, format, *args):
+                pass
+
+        with socketserver.TCPServer(("127.0.0.1", 0), InspectHandler) as server:
+            port = server.server_address[1]
+            t = threading.Thread(target=server.serve_forever)
+            t.daemon = True
+            t.start()
+            try:
+                judge = RestJudge(
+                    endpoint=f"http://127.0.0.1:{port}/chat/completions",
+                    model="gpt-4o-mini",
+                    timeout=5.0
+                )
+                cand = {
+                    "a": "py-orders:app",
+                    "b": "node-checkout:index",
+                    "similarity": 0.88,
+                    "tier": "HIGH",
+                    "shared_resources": [("KAFKA_TOPIC", "order.created"), ("SQL_TABLE", "orders")]
+                }
+                res = judge.evaluate(
+                    candidate=cand,
+                    summary_a="Order creation and checkout service",
+                    summary_b="Node customer checkout and payment processing",
+                    owner_a="team-orders",
+                    owner_b="team-checkout"
+                )
+                self.assertTrue(res.confirmed)
+                self.assertEqual(len(captured_payloads), 1)
+
+                payload = captured_payloads[0]
+                self.assertEqual(payload["max_tokens"], 450)
+                self.assertEqual(payload["temperature"], 0.0)
+
+                # Inspect system message
+                system_msg = next((m["content"] for m in payload["messages"] if m["role"] == "system"), "")
+                self.assertIn("Principal Enterprise Systems Architect", system_msg)
+                self.assertIn("Domain-Driven Design", system_msg)
+
+                # Inspect user prompt
+                user_prompt = next((m["content"] for m in payload["messages"] if m["role"] == "user"), "")
+                self.assertIn("py-orders:app", user_prompt)
+                self.assertIn("node-checkout:index", user_prompt)
+                self.assertIn("team-orders", user_prompt)
+                self.assertIn("team-checkout", user_prompt)
+                self.assertIn("CROSS-TEAM (team-orders vs team-checkout)", user_prompt)
+                self.assertIn("KAFKA_TOPIC: order.created", user_prompt)
+                self.assertIn("SQL_TABLE: orders", user_prompt)
+                self.assertIn("CORE BUSINESS DOMAIN vs TECHNICAL BOILERPLATE", user_prompt)
+                self.assertIn("PIPELINE COLLABORATION vs PARALLEL DUPLICATION", user_prompt)
+                self.assertIn("GOVERNANCE ACTION RUBRIC", user_prompt)
+                self.assertIn("ELIMINATE VAGUE SUMMARIES", user_prompt)
+            finally:
+                server.shutdown()
+
 
 if __name__ == "__main__":
     unittest.main()

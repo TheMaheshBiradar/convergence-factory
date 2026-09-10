@@ -6,6 +6,7 @@ capabilities, stamping a confidence score, rationale, and convergence play.
 """
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
 import json
 import os
@@ -229,41 +230,101 @@ class RestJudge(Judge):
 
     def evaluate(self, candidate: dict, summary_a: str, summary_b: str,
                  owner_a: str, owner_b: str) -> JudgeResult:
-        prompt = f"""You are an enterprise software architect evaluating two code modules for capability duplication.
-Module A: {candidate['a']}
-Summary A: {summary_a}
+        sim = float(candidate.get("similarity", 0.0))
+        tier = str(candidate.get("tier", "MED"))
+        mod_a = str(candidate.get("a", "unknown"))
+        mod_b = str(candidate.get("b", "unknown"))
+        oa = owner_a or "unknown"
+        ob = owner_b or "unknown"
 
-Module B: {candidate['b']}
-Summary B: {summary_b}
+        same_team = (oa == ob) and (oa != "unknown")
+        ownership_relation = (
+            f"SAME TEAM ({oa})" if same_team
+            else f"CROSS-TEAM ({oa} vs {ob})"
+        )
 
-Do these two modules implement the same core business capability or duplicate each other?
-Respond strictly in JSON format with keys:
-- "confirmed": boolean
-- "confidence": float between 0.0 and 1.0
-- "reason": short one-sentence explanation
-- "play": "RETIRE" if same owner, "STANDARDIZE" if cross-owner duplicate, or "LEAVE" if distinct.
-"""
+        shared_res = candidate.get("shared_resources", [])
+        if shared_res:
+            evidence_items = [f"  • {rtype}: {rid}" for rtype, rid in shared_res]
+            evidence_section = "\n=== KNOWN SHARED INFRASTRUCTURE EVIDENCE ===\n" + "\n".join(evidence_items)
+        else:
+            evidence_section = ""
+
+        prompt = f"""You are a Principal Enterprise Systems Architect and Domain-Driven Design (DDD) Authority.
+Your objective is to conduct an in-depth, rigorous architectural evaluation of two code modules to determine whether they represent a genuine CAPABILITY DUPLICATION or whether they are distinct, complementary, or collaborating components.
+
+=== MODULE A ===
+• Identifier   : {mod_a}
+• Owning Team  : {oa}
+• Capabilities : {summary_a}
+
+=== MODULE B ===
+• Identifier   : {mod_b}
+• Owning Team  : {ob}
+• Capabilities : {summary_b}
+
+=== ANALYSIS CONTEXT ===
+• Recall Similarity   : {sim:.2f} (Tier: {tier})
+• Ownership Boundary  : {ownership_relation}{evidence_section}
+
+=== ARCHITECTURAL DECISION RUBRIC ===
+1. CORE BUSINESS DOMAIN vs TECHNICAL BOILERPLATE:
+   - CONFIRM DUPLICATION (`confirmed: true`) ONLY if both modules implement the SAME core business capability (e.g., customer checkout, invoice generation, payment capture, auth token validation).
+   - REFUTE DUPLICATION (`confirmed: false`) if their similarity is merely superficial technical overlap (e.g., both use Spring Boot, both import Jackson/Lombok, both connect to PostgreSQL, both expose REST controllers).
+
+2. PIPELINE COLLABORATION vs PARALLEL DUPLICATION:
+   - REFUTE DUPLICATION (`confirmed: false`) if the modules have a producer-consumer relationship (one produces an event that the other consumes) or a client-server relationship (one calls the other's API). Collaborative pipelines in an event-driven or SOA architecture are NOT duplicates (`play: "LEAVE"`).
+   - CONFIRM DUPLICATION (`confirmed: true`) if both modules independently act as duplicate producers of the same event, duplicate writers to the same table, or redundant parallel implementations of the same business domain.
+
+3. GOVERNANCE ACTION RUBRIC:
+   - "RETIRE": True duplicate owned by the SAME team ({oa}). Consolidate into a single canonical module and decommission the redundant copy.
+   - "STANDARDIZE": True duplicate owned by DIFFERENT teams ({oa} vs {ob}). Converge onto a single enterprise platform service or shared library across team boundaries.
+   - "LEAVE": Distinct bounded contexts, complementary collaborators, or false positives. Keep decoupled.
+
+4. EXPLANATION & REASONING QUALITY (ELIMINATE VAGUE SUMMARIES):
+   - Do NOT provide vague, generic one-liners (avoid trivial phrases like "both handle data" or "both do payment").
+   - You MUST provide an authoritative, crisp, 2-3 sentence architectural justification that:
+     (a) Identifies the specific business domain / bounded context.
+     (b) Cites specific concrete evidence (e.g. entities, events, tables, APIs, or libraries).
+     (c) Explicitly states why the chosen play (RETIRE, STANDARDIZE, or LEAVE) is technically and organizationally sound.
+
+=== RESPONSE FORMAT ===
+Respond strictly in valid JSON format with NO markdown fences or preamble:
+{{
+  "confirmed": <boolean>,
+  "confidence": <float between 0.0 and 1.0>,
+  "reason": "<Detailed, evidence-grounded architectural rationale following instructions above>",
+  "play": "<'RETIRE' | 'STANDARDIZE' | 'LEAVE'>"
+}}"""
+
+        system_content = (
+            "You are a Principal Enterprise Systems Architect and Domain-Driven Design (DDD) Authority. "
+            "Evaluate software modules with deep architectural rigor, distinguishing true domain duplication "
+            "from complementary producer-consumer pipelines or shared framework boilerplate. "
+            "Always output precise, evidence-grounded rationales strictly in valid JSON format."
+        )
+
         is_chat_api = "/chat/completions" in self.endpoint or "openai" in self.endpoint or "groq" in self.endpoint
 
         if is_chat_api:
             payload_dict = {
                 "model": self.model,
                 "messages": [
-                    {"role": "system", "content": "You are an enterprise software architect evaluating duplicate capabilities. Respond strictly in JSON."},
+                    {"role": "system", "content": system_content},
                     {"role": "user", "content": prompt}
                 ],
                 "response_format": {"type": "json_object"},
                 "temperature": 0.0,
-                "max_tokens": 120,
+                "max_tokens": 450,
             }
         else:
             payload_dict = {
                 "model": self.model,
-                "prompt": prompt,
+                "prompt": f"{system_content}\n\n{prompt}",
                 "stream": False,
                 "format": "json",
                 "options": {
-                    "num_predict": 120,
+                    "num_predict": 450,
                     "temperature": 0.0
                 }
             }
@@ -537,6 +598,14 @@ def judge_candidates(arg1, arg2, judge: Optional[Judge] = None, interactive: boo
     summaries = {row["module_id"]: row["summary"] for row in store.db.execute("SELECT module_id, summary FROM capability_summaries")}
     owners = store.module_owner()
 
+    # Pre-index integration facts by module to enrich candidates with shared infrastructure evidence
+    facts_by_module = defaultdict(list)
+    try:
+        for row in store.db.execute("SELECT module_id, direction, resource_type, resource_id FROM integration_facts"):
+            facts_by_module[row["module_id"]].append((row["direction"], row["resource_type"], row["resource_id"]))
+    except Exception:
+        pass
+
     effective_delay = delay if delay is not None else getattr(judge, "delay", 0.0)
     total = len(candidates)
     results = []
@@ -547,6 +616,14 @@ def judge_candidates(arg1, arg2, judge: Optional[Judge] = None, interactive: boo
         oa = owners.get(ma, "unknown")
         ob = owners.get(mb, "unknown")
         sim = cand.get("similarity", 0.0)
+
+        # Cross-reference shared infrastructure facts
+        if "shared_resources" not in cand and facts_by_module:
+            res_a = {(rtype, rid) for _, rtype, rid in facts_by_module.get(ma, [])}
+            res_b = {(rtype, rid) for _, rtype, rid in facts_by_module.get(mb, [])}
+            shared = sorted(res_a & res_b)
+            if shared:
+                cand["shared_resources"] = shared
 
         if interactive:
             print(f"  [judge] [{idx}/{total}] Calling judge for '{ma}' <-> '{mb}' (similarity={sim:.2f}) ... ", end="", flush=True)
