@@ -40,8 +40,10 @@ CONFIG_LLM_KEY=""
 #    Rate Limiting & Throttle Settings:
 #    - CONFIG_LLM_MAX_RETRIES: Maximum attempts on HTTP 429 rate limit (default: 3)
 #    - CONFIG_LLM_DELAY: Proactive delay in seconds between calls to avoid hitting rate limits (default: 0.0)
+#    - CONFIG_LLM_MAX_TOKENS: Maximum completion tokens for judge reasoning (default: 600)
 CONFIG_LLM_MAX_RETRIES=""
 CONFIG_LLM_DELAY=""
+CONFIG_LLM_MAX_TOKENS=""
 
 # ==============================================================================
 
@@ -63,6 +65,7 @@ LLM_KEY="${CONFIG_LLM_KEY:-${CONVERGENCE_LLM_KEY:-${OPENAI_API_KEY:-}}}"
 LLM_TIMEOUT=""
 LLM_MAX_RETRIES="${CONFIG_LLM_MAX_RETRIES:-${CONVERGENCE_LLM_MAX_RETRIES:-}}"
 LLM_DELAY="${CONFIG_LLM_DELAY:-${CONVERGENCE_LLM_DELAY:-}}"
+LLM_MAX_TOKENS="${CONFIG_LLM_MAX_TOKENS:-${CONVERGENCE_LLM_MAX_TOKENS:-}}"
 AUTO_SERVE=false
 
 usage() {
@@ -88,6 +91,7 @@ Options:
   --llm-timeout <sec>       Timeout per LLM request in seconds (default: 60)
   --llm-max-retries <n>     Max retries on HTTP 429 rate limit (default: 3)
   --llm-delay <sec>         Proactive throttle delay between LLM calls in seconds (default: 0.0)
+  --llm-max-tokens <n>      Maximum completion tokens for LLM judge (default: 600)
   --test-llm                Run the LLM connectivity and latency diagnostic
   --serve                   Automatically open and serve the interactive Redundancy Map in browser
   -h, --help                Show this help message
@@ -168,6 +172,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --llm-delay)
       LLM_DELAY="$2"
+      shift 2
+      ;;
+    --llm-max-tokens)
+      LLM_MAX_TOKENS="$2"
       shift 2
       ;;
     *)
@@ -252,6 +260,9 @@ if [[ "$ENABLE_LLM" == true ]]; then
   fi
   if [[ -n "$LLM_DELAY" ]]; then
     CMD+=(--llm-delay "$LLM_DELAY")
+  fi
+  if [[ -n "$LLM_MAX_TOKENS" ]]; then
+    CMD+=(--llm-max-tokens "$LLM_MAX_TOKENS")
   fi
 fi
 

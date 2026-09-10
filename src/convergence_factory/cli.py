@@ -121,7 +121,8 @@ def cmd_run(args):
                     api_key=key,
                     timeout=timeout,
                     max_retries=getattr(args, "llm_max_retries", None),
-                    delay=getattr(args, "llm_delay", None)
+                    delay=getattr(args, "llm_delay", None),
+                    max_tokens=getattr(args, "llm_max_tokens", None)
                 )
                 print(f"[judge] running pairwise semantic judge via live LLM ({judge_impl.model})")
         else:
@@ -299,7 +300,8 @@ def cmd_judge(args):
                 api_key=key,
                 timeout=timeout,
                 max_retries=getattr(args, "llm_max_retries", None),
-                delay=getattr(args, "llm_delay", None)
+                delay=getattr(args, "llm_delay", None),
+                max_tokens=getattr(args, "llm_max_tokens", None)
             )
             print(f"[judge] evaluating candidates via live LLM ({judge_impl.model})")
     else:
@@ -438,6 +440,7 @@ def main(argv=None):
     r.add_argument("--llm-timeout", type=float, default=60.0, help="timeout in seconds per LLM request (default: 60.0)")
     r.add_argument("--llm-max-retries", type=int, default=None, help="max retries when LLM returns HTTP 429 rate limit (default: 3 or $CONVERGENCE_LLM_MAX_RETRIES)")
     r.add_argument("--llm-delay", type=float, default=None, help="proactive throttle delay in seconds between LLM judge requests (default: 0.0 or $CONVERGENCE_LLM_DELAY)")
+    r.add_argument("--llm-max-tokens", type=int, default=None, help="maximum completion tokens for LLM judge (default: 600 or $CONVERGENCE_LLM_MAX_TOKENS)")
     r.add_argument("--ratchet", action="store_true", help="generate one-way governance ratchets")
     r.add_argument("--rewrite", action="store_true", help="generate OpenRewrite refactoring recipes")
     r.add_argument("-v", "--verbose", action="store_true", help="enable verbose debug logging")
@@ -471,6 +474,7 @@ def main(argv=None):
     j.add_argument("--llm-timeout", type=float, default=60.0, help="timeout in seconds per LLM request (default: 60.0)")
     j.add_argument("--llm-max-retries", type=int, default=None, help="max retries when LLM returns HTTP 429 rate limit (default: 3 or $CONVERGENCE_LLM_MAX_RETRIES)")
     j.add_argument("--llm-delay", type=float, default=None, help="proactive throttle delay in seconds between LLM judge requests (default: 0.0 or $CONVERGENCE_LLM_DELAY)")
+    j.add_argument("--llm-max-tokens", type=int, default=None, help="maximum completion tokens for LLM judge (default: 600 or $CONVERGENCE_LLM_MAX_TOKENS)")
     j.set_defaults(func=cmd_judge)
 
     tl = sub.add_parser("test-llm", help="test connectivity, latency and JSON response from LLM endpoint")

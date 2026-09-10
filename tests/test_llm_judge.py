@@ -420,7 +420,7 @@ class TestLLMJudge(unittest.TestCase):
                 self.assertEqual(len(captured_payloads), 1)
 
                 payload = captured_payloads[0]
-                self.assertEqual(payload["max_tokens"], 450)
+                self.assertEqual(payload["max_tokens"], 600)
                 self.assertEqual(payload["temperature"], 0.0)
 
                 # Inspect system message
@@ -441,6 +441,64 @@ class TestLLMJudge(unittest.TestCase):
                 self.assertIn("PIPELINE COLLABORATION vs PARALLEL DUPLICATION", user_prompt)
                 self.assertIn("GOVERNANCE ACTION RUBRIC", user_prompt)
                 self.assertIn("ELIMINATE VAGUE SUMMARIES", user_prompt)
+            finally:
+                server.shutdown()
+
+    def test_rest_judge_max_tokens_and_recommended_action(self):
+        """Verify max_tokens override and recommended_action appending to reason."""
+        captured_payloads = []
+
+        class ActionHandler(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                content_len = int(self.headers.get("Content-Length", 0))
+                captured_payloads.append(json.loads(self.rfile.read(content_len).decode("utf-8")))
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                resp = {
+                    "choices": [{
+                        "message": {
+                            "content": json.dumps({
+                                "confirmed": True,
+                                "confidence": 0.96,
+                                "domain": "Payment Processing",
+                                "reason": "Both modules handle Stripe checkout sessions",
+                                "recommended_action": "Retire node-checkout and route through py-orders",
+                                "play": "RETIRE"
+                            })
+                        }
+                    }]
+                }
+                self.wfile.write(json.dumps(resp).encode("utf-8"))
+
+            def log_message(self, format, *args):
+                pass
+
+        with socketserver.TCPServer(("127.0.0.1", 0), ActionHandler) as server:
+            port = server.server_address[1]
+            t = threading.Thread(target=server.serve_forever)
+            t.daemon = True
+            t.start()
+            try:
+                # 1. Explicit max_tokens
+                judge = RestJudge(
+                    endpoint=f"http://127.0.0.1:{port}/chat/completions",
+                    model="gpt-5.4",
+                    max_tokens=1024,
+                    timeout=5.0
+                )
+                self.assertEqual(judge.max_tokens, 1024)
+                cand = {"a": "py-orders:app", "b": "node-checkout:index", "similarity": 0.88}
+                res = judge.evaluate(cand, "Orders API", "Checkout API", "team-orders", "team-checkout")
+                self.assertEqual(captured_payloads[0]["max_tokens"], 1024)
+                self.assertTrue(res.confirmed)
+                self.assertIn("Both modules handle Stripe checkout sessions", res.reason)
+                self.assertIn("(Action: Retire node-checkout and route through py-orders)", res.reason)
+
+                # 2. Environment variable fallback
+                with patch.dict("os.environ", {"CONVERGENCE_LLM_MAX_TOKENS": "850"}):
+                    judge_env = RestJudge(endpoint=f"http://127.0.0.1:{port}/chat/completions")
+                    self.assertEqual(judge_env.max_tokens, 850)
             finally:
                 server.shutdown()
 

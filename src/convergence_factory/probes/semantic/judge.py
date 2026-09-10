@@ -215,7 +215,8 @@ class RestJudge(Judge):
                  fallback: Optional[Judge] = None,
                  timeout: Optional[float] = None,
                  max_retries: Optional[int] = None,
-                 delay: Optional[float] = None):
+                 delay: Optional[float] = None,
+                 max_tokens: Optional[int] = None):
         self.endpoint = endpoint or os.environ.get("CONVERGENCE_LLM_ENDPOINT") or os.environ.get("LLM_ENDPOINT") or "http://localhost:11434/api/generate"
         self.model = model or os.environ.get("CONVERGENCE_LLM_MODEL") or os.environ.get("LLM_MODEL") or "llama3.1:latest"
         self.api_key = api_key or os.environ.get("CONVERGENCE_LLM_KEY") or os.environ.get("OPENAI_API_KEY") or ""
@@ -226,6 +227,8 @@ class RestJudge(Judge):
         self.max_retries = max_retries if max_retries is not None else (int(env_retries) if env_retries else 3)
         env_delay = os.environ.get("CONVERGENCE_LLM_DELAY")
         self.delay = delay if delay is not None else (float(env_delay) if env_delay else 0.0)
+        env_max_tokens = os.environ.get("CONVERGENCE_LLM_MAX_TOKENS")
+        self.max_tokens = max_tokens if max_tokens is not None else (int(env_max_tokens) if env_max_tokens else 600)
         self.last_error: Optional[str] = None
 
     def evaluate(self, candidate: dict, summary_a: str, summary_b: str,
@@ -293,7 +296,9 @@ Respond strictly in valid JSON format with NO markdown fences or preamble:
 {{
   "confirmed": <boolean>,
   "confidence": <float between 0.0 and 1.0>,
+  "domain": "<Specific business capability or domain context>",
   "reason": "<Detailed, evidence-grounded architectural rationale following instructions above>",
+  "recommended_action": "<Concrete next step, e.g. Retire Module B and delegate all requests to Module A>",
   "play": "<'RETIRE' | 'STANDARDIZE' | 'LEAVE'>"
 }}"""
 
@@ -315,7 +320,7 @@ Respond strictly in valid JSON format with NO markdown fences or preamble:
                 ],
                 "response_format": {"type": "json_object"},
                 "temperature": 0.0,
-                "max_tokens": 450,
+                "max_tokens": self.max_tokens,
             }
         else:
             payload_dict = {
@@ -324,7 +329,7 @@ Respond strictly in valid JSON format with NO markdown fences or preamble:
                 "stream": False,
                 "format": "json",
                 "options": {
-                    "num_predict": 450,
+                    "num_predict": self.max_tokens,
                     "temperature": 0.0
                 }
             }
@@ -349,10 +354,14 @@ Respond strictly in valid JSON format with NO markdown fences or preamble:
                         content = data.get("response", "{}")
                     body = _parse_json_object(content)
                     self.last_error = None
+                    reason = str(body.get("reason", "LLM judged evaluation"))
+                    rec_action = body.get("recommended_action")
+                    if rec_action and rec_action not in reason:
+                        reason = f"{reason} (Action: {rec_action})"
                     return JudgeResult(
                         confirmed=bool(body.get("confirmed", False)),
                         confidence=float(body.get("confidence", 0.5)),
-                        reason=str(body.get("reason", "LLM judged evaluation")),
+                        reason=reason,
                         play=str(body.get("play", "LEAVE"))
                     )
             except urllib.error.HTTPError as err:
