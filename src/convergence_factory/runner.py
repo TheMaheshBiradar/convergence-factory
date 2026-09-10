@@ -127,11 +127,18 @@ def extract(store: Store, scan: ProjectScan, verbose: bool = False) -> dict:
             store.add_gaps(bundle.gaps)
             stats["gaps"] += len(bundle.gaps)
             for g in bundle.gaps:
+                g_file = g.provenance.file if getattr(g, "provenance", None) else getattr(g, "file", "unknown")
+                g_expr = getattr(g, "expression", "") or getattr(g, "target_expr", "")
+                g_kind = getattr(g, "kind", "resource")
+                g_reason = g.provenance.resolver_notes if getattr(g, "provenance", None) else getattr(g, "reason", "")
+                msg = f"Unresolved {g_kind} expression '{g_expr}'"
+                if g_reason:
+                    msg += f": {g_reason}"
                 ERROR_TRACKER.record_warning(
                     phase="probe:gaps",
-                    source=f"{module.id} ({g.file})",
+                    source=f"{module.id} ({g_file})",
                     warning_type="UnresolvedDynamicReference",
-                    message=f"Target expression '{g.target_expr}': {g.reason}",
+                    message=msg,
                     remediation="Define explicit property or environment constant in application configs."
                 )
 

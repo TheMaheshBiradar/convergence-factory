@@ -117,6 +117,19 @@ class Gap:
     expression: str    # the unresolved expression, verbatim
     provenance: Provenance
 
+    @property
+    def file(self) -> str:
+        return self.provenance.file if self.provenance else ""
+
+    @property
+    def target_expr(self) -> str:
+        return self.expression
+
+    @property
+    def reason(self) -> str:
+        return self.provenance.resolver_notes if self.provenance else ""
+
+
 
 @dataclass
 class ModuleMetric:

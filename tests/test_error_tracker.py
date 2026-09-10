@@ -108,6 +108,58 @@ class TestErrorTracker(unittest.TestCase):
         self.assertEqual(self.tracker.count(), 0)
         self.assertFalse(self.tracker.has_errors())
 
+    def test_gap_properties_and_safe_access(self):
+        from convergence_factory.schema import Gap, Provenance
+        prov = Provenance(file="src/OrderConsumer.java", line=45, resolver_notes="dynamic topic")
+        gap = Gap(module_id="orders:java", kind="KAFKA_TOPIC", expression="${kafka.topic.name}", provenance=prov)
+        
+        # Test property access
+        self.assertEqual(gap.file, "src/OrderConsumer.java")
+        self.assertEqual(gap.target_expr, "${kafka.topic.name}")
+        self.assertEqual(gap.reason, "dynamic topic")
+
+    def test_runner_extract_records_gaps_without_attribute_error(self):
+        from convergence_factory.schema import FactBundle, Gap, Module, Project, Provenance
+        from convergence_factory.store import Store
+        from convergence_factory.runner import ProjectScan, extract
+        from convergence_factory.probes.integration.base import LanguagePlugin
+
+        db_path = os.path.join(self.temp_dir, "test_gaps.db")
+        store = Store(db_path)
+
+        p = Project(id="test-proj", repo_url="/path", owner_team="team-a")
+        mod = Module(id="test-proj:srv", project_id="test-proj", path="/path", name="srv", lang="java")
+        gap = Gap(
+            module_id="test-proj:srv",
+            kind="KAFKA_TOPIC",
+            expression="${env.TOPIC_NAME}",
+            provenance=Provenance(file="OrderService.java", line=12, resolver_notes="environment property")
+        )
+
+        class MockPlugin(LanguagePlugin):
+            name = "mock-plugin"
+            def detect(self, repo_path):
+                return {"claims": ["mock"], "build": "pom.xml", "score": 1}
+            def modules(self, repo_path, project_id):
+                return [mod]
+            def facts(self, module, repo_path):
+                return FactBundle(module=module, gaps=[gap])
+
+        scan = ProjectScan(project=p, primary=MockPlugin(), repo_path="/path", plugins=[MockPlugin()])
+        
+        ERROR_TRACKER.clear()
+        # This extract call should not raise AttributeError on g.file
+        stats = extract(store, scan)
+        self.assertEqual(stats["gaps"], 1)
+
+        # Check recorded warning in ERROR_TRACKER
+        errors = ERROR_TRACKER.get_errors()
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].phase, "probe:gaps")
+        self.assertEqual(errors[0].source, "test-proj:srv (OrderService.java)")
+        self.assertIn("Unresolved KAFKA_TOPIC expression '${env.TOPIC_NAME}': environment property", errors[0].message)
+        store.close()
+
 
 if __name__ == "__main__":
     unittest.main()
