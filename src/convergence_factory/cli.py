@@ -20,6 +20,7 @@ from .clone_probe import detect_clones
 from .connectors.gitlab import parse_inventory
 from .eval import format_report
 from .eval import run as eval_run
+from .core.errors import ERROR_TRACKER
 from .executors import rewrite as rewrite_mod
 from .logger import setup_logger
 from .runner import extract
@@ -170,6 +171,14 @@ def cmd_run(args):
     print(f"\nresolution rate: {summary['resolution_rate']}%   "
           f"(gaps tracked: {summary['gaps']})")
     print(f"site: {summary['site']}")
+
+    err_file = ERROR_TRACKER.write_to_file(args.out)
+    if ERROR_TRACKER.count() > 0:
+        err_count = sum(1 for e in ERROR_TRACKER.get_errors() if e.severity == "ERROR")
+        warn_count = sum(1 for e in ERROR_TRACKER.get_errors() if e.severity == "WARNING")
+        print(f"\n[diagnostics] {ERROR_TRACKER.count()} issues captured ({err_count} errors, {warn_count} warnings) -> {err_file}")
+    else:
+        print(f"\n[diagnostics] 0 issues captured (pipeline clean) -> {err_file}")
     return 0
 
 
@@ -212,6 +221,11 @@ def cmd_census(args):
     print(f"\nTotal: {len(scans)} project(s) ready for convergence analysis.")
     print("To run convergence analysis on these projects:")
     print(f"  ./run.sh {root_abs} --all --serve\n")
+
+    out_dir = getattr(args, "out", None) or DEFAULT_OUT
+    err_file = ERROR_TRACKER.write_to_file(out_dir)
+    if ERROR_TRACKER.count() > 0:
+        print(f"[diagnostics] {ERROR_TRACKER.count()} census issues recorded -> {err_file}")
     return 0
 
 
@@ -296,6 +310,10 @@ def cmd_judge(args):
         print(f"  [{status:<9}] {c['a']:<22} <-> {c['b']:<22} "
               f"conf={c.get('confidence', 0.0):<4} play={c.get('play', 'LEAVE'):<11}")
         print(f"               Reason: {c.get('reason', '')}")
+
+    err_file = ERROR_TRACKER.write_to_file(args.out)
+    if ERROR_TRACKER.count() > 0:
+        print(f"\n[diagnostics] {ERROR_TRACKER.count()} issue(s) recorded -> {err_file}")
     return 0
 
 
@@ -422,6 +440,7 @@ def main(argv=None):
 
     c = sub.add_parser("census", help="project manifest only")
     c.add_argument("root", nargs="?", default=None)
+    c.add_argument("--out", default=DEFAULT_OUT)
     c.add_argument("-v", "--verbose", action="store_true", help="enable verbose debug logging")
     c.add_argument("--inventory", default=None, help="path to GitLab inventory JSON")
     c.set_defaults(func=cmd_census)

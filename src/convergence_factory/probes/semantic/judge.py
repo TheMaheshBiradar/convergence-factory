@@ -17,6 +17,7 @@ import urllib.request
 from typing import Dict, List, Optional
 
 
+from convergence_factory.core.errors import ERROR_TRACKER
 from convergence_factory.core.store import Store
 from convergence_factory.logger import LOGGER
 
@@ -223,6 +224,14 @@ Respond strictly in JSON format with keys:
                 )
         except Exception as err:
             self.last_error = str(err)
+            ERROR_TRACKER.record_warning(
+                phase="probe:semantic:judge",
+                source=f"{self.endpoint} (model: {self.model})",
+                warning_type="LLMCallFailure",
+                message=f"LLM call failed for '{candidate.get('a')}' <-> '{candidate.get('b')}': {err}",
+                details=str(err),
+                remediation="Ensure model server is running, model name matches, or increase timeout with --llm-timeout."
+            )
             LOGGER.warning(
                 "RestJudge LLM call failed for '%s' <-> '%s': %s (falling back to heuristic judge)",
                 candidate.get("a"), candidate.get("b"), err

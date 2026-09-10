@@ -8,7 +8,8 @@ Contains:
 """
 from __future__ import annotations
 
-from . import graph, resolver, schema, store
+from . import errors, graph, resolver, schema, store
+from .errors import ERROR_TRACKER, ErrorTracker, FrameworkError
 from .graph import build, promote_candidates
 from .resolver import (
     Resolution,
@@ -84,4 +85,8 @@ __all__ = [
     "store",
     "resolver",
     "graph",
+    "errors",
+    "ERROR_TRACKER",
+    "ErrorTracker",
+    "FrameworkError",
 ]

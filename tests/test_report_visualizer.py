@@ -64,6 +64,31 @@ class TestReportVisualizer(unittest.TestCase):
             self.assertIn("events.order", content)
             self.assertIn("STANDARDIZE", content)
 
+            # Assert intuitive column headers requested by user
+            self.assertIn("Why Matched?", content)
+            self.assertIn("How Decided?", content)
+            self.assertIn("What Is Next Step?", content)
+
+            # Assert column trimming and tooltips
+            self.assertIn("trim-col", content)
+            self.assertIn("data-tip=", content)
+            self.assertIn("id=\"floating-tooltip\"", content)
+
+            # Assert expandable accordion deep dive
+            self.assertIn("id=\"detail-1\"", content)
+            self.assertIn("Why Did These Match?", content)
+            self.assertIn("How Was This Decided?", content)
+            self.assertIn("What Is The Next Step?", content)
+
+            # Assert error.txt integration and diagnostics link
+            self.assertIn("href=\"error.txt\"", content)
+            self.assertIn("Framework Issues", content)
+
+        # Assert site/error.txt exists
+        site_error_file = os.path.join(os.path.dirname(res["site"]), "error.txt")
+        self.assertTrue(os.path.exists(site_error_file))
+
+
     def test_mermaid_deduplication_and_budget(self):
         """Verify identical facts are deduplicated into single edges and edge budget triggers Estate Summary."""
         # Add 10 duplicate facts from same module to same topic
