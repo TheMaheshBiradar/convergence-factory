@@ -10,13 +10,50 @@ set -eo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PYTHONPATH="${ROOT_DIR}/src:${PYTHONPATH:-}"
 
-# Defaults
-TARGET_DIR=""
+# ==============================================================================
+# USER CONFIGURATION (Optional - provide your settings directly below)
+# ==============================================================================
+
+# 1. Custom Repositories Directory (optional default):
+#    Example: CONFIG_TARGET_DIR="/Users/mahesh/projects/my-microservices"
+CONFIG_TARGET_DIR=""
+
+# 2. LLM Configuration:
+#    Set to true to force-enable LLM (or leave false to enable when endpoint/model is set)
+CONFIG_ENABLE_LLM=false
+
+#    LLM Chat/Completions Endpoint:
+#    - Ollama local : "http://localhost:11434/api/generate" or "http://localhost:11434/v1/chat/completions"
+#    - OpenAI cloud : "https://api.openai.com/v1/chat/completions"
+#    - Azure OpenAI : "https://<resource>.openai.azure.com/openai/deployments/<model>/chat/completions?api-version=2024-02-15-preview"
+#    - Groq cloud   : "https://api.groq.com/openai/v1/chat/completions"
+CONFIG_LLM_ENDPOINT=""
+
+#    LLM Model Name:
+#    - Examples: "llama3.1:latest", "gpt-4o-mini", "mistral", "qwen2.5:latest"
+CONFIG_LLM_MODEL=""
+
+#    LLM API Key or Bearer Token (leave empty for local Ollama):
+#    - Example: "sk-proj-..." or "Bearer ..."
+CONFIG_LLM_KEY=""
+
+# ==============================================================================
+
+# Auto-source local .env file if present
+if [[ -f "${ROOT_DIR}/.env" ]]; then
+  # shellcheck disable=SC1091
+  set -a
+  source "${ROOT_DIR}/.env"
+  set +a
+fi
+
+# Initialize defaults from direct config, environment, or fallbacks
+TARGET_DIR="${CONFIG_TARGET_DIR:-${CONVERGENCE_TARGET_DIR:-}}"
 OUT_DIR="${ROOT_DIR}/.factory"
-ENABLE_LLM=false
-LLM_ENDPOINT="${CONVERGENCE_LLM_ENDPOINT:-}"
-LLM_MODEL="${CONVERGENCE_LLM_MODEL:-}"
-LLM_KEY="${CONVERGENCE_LLM_KEY:-${OPENAI_API_KEY:-}}"
+ENABLE_LLM="${CONFIG_ENABLE_LLM:-false}"
+LLM_ENDPOINT="${CONFIG_LLM_ENDPOINT:-${CONVERGENCE_LLM_ENDPOINT:-}}"
+LLM_MODEL="${CONFIG_LLM_MODEL:-${CONVERGENCE_LLM_MODEL:-}}"
+LLM_KEY="${CONFIG_LLM_KEY:-${CONVERGENCE_LLM_KEY:-${OPENAI_API_KEY:-}}}"
 AUTO_SERVE=false
 
 usage() {
@@ -162,6 +199,12 @@ else
   echo "📂 Target Repositories: fixtures/repos (default reference fixtures)"
   echo "💡 Tip: To run on your own projects, pass your folder path: ./run.sh /path/to/my/projects"
 fi
+if [[ "$ENABLE_LLM" == true ]]; then
+  echo "🤖 LLM Judge: ENABLED (Model: ${LLM_MODEL:-auto/default}, Endpoint: ${LLM_ENDPOINT:-local Ollama})"
+else
+  echo "🤖 LLM Judge: DISABLED (Heuristic judge active. Configure CONFIG_LLM_* in run.sh or pass --llm to enable)"
+fi
+echo ""
 "${CMD[@]}" "${ARGS[@]}"
 
 echo ""
