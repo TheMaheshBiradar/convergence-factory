@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          # core runs on stdlib; these sharpen the probe backends (AST / SQL / YAML)
+          python -m pip install pytest sqlglot pyyaml tree_sitter tree_sitter_java tree_sitter_javascript
+      - name: Unit + integration tests
+        run: python -m pytest
+      - name: Calibration eval (precision / recall / resolution)
+        run: PYTHONPATH=src python -m convergence_factory eval
+      - name: Pipeline smoke (six stages -> capability matrix)
+        run: PYTHONPATH=src python -m convergence_factory.pipeline fixtures/repos --out .factory-ci --no-semantic

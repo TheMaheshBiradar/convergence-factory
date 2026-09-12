@@ -29,3 +29,40 @@ def export_graph_json(store: Store, clusters: List[dict], out_path: str) -> str:
     with open(out_path, "w", encoding="utf-8") as gfh:
         json.dump(data, gfh, indent=2)
     return out_path
+
+
+def build_capability_graph(capabilities: List[Any]) -> Dict[str, Any]:
+    """Stage 5 explore view — the BIPARTITE module<->capability graph.
+
+    This is the graph twin of the capability matrix: module nodes on one side,
+    capability nodes on the other, edges = participation (direction + tier). It
+    is deliberately bipartite — we never project to module<->module, because that
+    projection is exactly what produced the unreadable blob. Capability nodes
+    carry dimension / member_count / tier / play so a Cytoscape view can
+    highlight the duplication findings directly.
+    """
+    nodes: Dict[str, dict] = {}
+    edges: List[dict] = []
+    for cap in capabilities:
+        cid = f"cap::{cap.id}"
+        nodes[cid] = {
+            "id": cid, "label": cap.label, "type": "capability",
+            "dimension": cap.dimension, "tier": cap.tier, "play": cap.play,
+            "opportunity": cap.opportunity, "member_count": len(cap.module_ids),
+            "is_duplicate": True,
+        }
+        for m in cap.members:
+            mid = m["module"]
+            nodes.setdefault(mid, {"id": mid, "label": mid.split(":")[0],
+                                   "type": "module"})
+            edges.append({"source": mid, "target": cid,
+                          "direction": m["direction"], "tier": m["tier"]})
+    return {"nodes": list(nodes.values()), "edges": edges,
+            "bipartite": True, "kinds": ["module", "capability"]}
+
+
+def export_capability_graph(capabilities: List[Any], out_path: str) -> str:
+    """Write the bipartite capability graph to a Cytoscape/D3-friendly json."""
+    with open(out_path, "w", encoding="utf-8") as fh:
+        json.dump(build_capability_graph(capabilities), fh, indent=2)
+    return out_path

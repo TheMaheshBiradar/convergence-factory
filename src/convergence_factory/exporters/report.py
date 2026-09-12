@@ -352,23 +352,9 @@ def render(store: Store, graph: dict, candidates: List[dict], out_dir: str) -> d
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(doc)
 
-    # Graphify / Cytoscape interoperability: emit graph.json
-    import json
-    nodes = {}
-    edges_list = []
-    for m in store.modules():
-        nodes[m.id] = {"id": m.id, "label": m.name, "type": "module", "lang": m.lang}
-    for f in store.integration_facts():
-        res_key = f"{f.resource_type}:{f.resource_id}"
-        if res_key not in nodes:
-            nodes[res_key] = {"id": res_key, "label": f.resource_id, "type": "resource", "resource_type": f.resource_type}
-        src = f.module_id if f.direction in ("PRODUCES", "WRITES") else res_key
-        tgt = res_key if f.direction in ("PRODUCES", "WRITES") else f.module_id
-        edges_list.append({"source": src, "target": tgt, "direction": f.direction, "tier": f.tier})
-
-    graph_json_path = os.path.join(site, "graph.json")
-    with open(graph_json_path, "w", encoding="utf-8") as gfh:
-        json.dump({"nodes": list(nodes.values()), "edges": edges_list, "clusters": clusters}, gfh, indent=2)
+    # Graphify / Cytoscape interoperability: emit graph.json.
+    # Single source of truth — graphify.build_graph_data (was duplicated inline).
+    graph_json_path = export_graph_json(store, clusters, os.path.join(site, "graph.json"))
 
     return {
         "resolution_rate": round(resolution, 1),
