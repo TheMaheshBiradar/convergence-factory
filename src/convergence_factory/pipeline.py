@@ -159,10 +159,18 @@ def run(config: PipelineConfig, judge=None, embedder=None, store_factory=None) -
     # 5 VIEWS
     t = time.time()
     log = stage("views")
-    m = matrix_view.render(caps, out, max_cols=config.matrix_max_cols)
+    # convergence plan — the "unify into this" target, rendered into the view
+    import json as _json
+    from .core.convergence import build as build_convergence
+    convergence = build_convergence(store, caps)
+    m = matrix_view.render(caps, out, max_cols=config.matrix_max_cols,
+                           convergence=convergence)
     gpath = os.path.join(out, "site", "capability-graph.json")
     export_capability_graph(caps, gpath)
-    log(f"matrix={m['matrix_html']} graph={gpath}")
+    with open(os.path.join(out, "site", "convergence.json"), "w", encoding="utf-8") as fh:
+        _json.dump(convergence, fh, indent=2)
+    log(f"matrix={m['matrix_html']} graph={gpath} convergence={convergence['rollup']}")
+
     report_results = {}
     for name, fn in REPORT_PROBES:
         report_results[name] = fn(store, ctx)
@@ -184,6 +192,16 @@ def run(config: PipelineConfig, judge=None, embedder=None, store_factory=None) -
 
     store.close()
 
+    print("\n=== CONVERGENCE PLAN (unify into this) ===")
+    for p in convergence["capability_plans"][:10]:
+        frm = ", ".join(s.split(":")[0] for s in p["migrate_from"]) or "-"
+        print(f"  [{p['play']:<11}] {p['dimension']:<10} {p['label'][:34]:<34} "
+              f"-> canonical: {p['canonical'].split(':')[0]:<18} (migrate: {frm})")
+    for tp in convergence["tech_plans"][:6]:
+        print(f"  [STANDARDIZE] tech       {tp['category']:<34} -> standard: {tp['canonical']} "
+              f"(migrate: {', '.join(tp['migrate_from_libs']) or '-'})")
+    print(f"  rollup: {convergence['rollup']}")
+
     print("\n=== SUMMARY ===")
     print(f"projects={len(scans)} modules={totals['modules']} "
           f"capabilities={summ['total']} plays={by_play}")
@@ -191,7 +209,8 @@ def run(config: PipelineConfig, judge=None, embedder=None, store_factory=None) -
     print(f"matrix : {m['matrix_html']}")
     return {"projects": len(scans), "modules": totals["modules"],
             "capabilities": summ["total"], "by_dimension": summ["by_dimension"],
-            "by_play": by_play, "timings": timings, **m}
+            "by_play": by_play, "convergence": convergence["rollup"],
+            "timings": timings, **m}
 
 
 def main(argv=None):
