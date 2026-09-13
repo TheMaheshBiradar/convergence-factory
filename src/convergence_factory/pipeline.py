@@ -175,6 +175,12 @@ def run(config: PipelineConfig, judge=None, embedder=None, store_factory=None) -
     for name, fn in REPORT_PROBES:
         report_results[name] = fn(store, ctx)
         log(f"probe:{name} {report_results[name]}")
+
+    # portfolio dashboard — stats first, filter, drill down (self-contained HTML)
+    from .core.tech import analyze_tech
+    from .exporters import dashboard as dashboard_view
+    dash = dashboard_view.render(caps, convergence, analyze_tech(store), store, out)
+    log(f"dashboard={dash['dashboard_html']}")
     timings["views"] = time.time() - t
 
     # 6 REMEDIATE (opt-in)
