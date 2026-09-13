@@ -46,6 +46,14 @@ def test_matrix_render_writes_scannable_grid(tmp_path):
     assert "customers" in open(res["matrix_html"], encoding="utf-8").read()
 
 
+def test_cli_matrix_command_runs(tmp_path):
+    from convergence_factory import cli
+    out = str(tmp_path / "cli-out")
+    rc = cli.main(["matrix", _FIX, "--out", out, "--no-semantic"])
+    assert rc == 0
+    assert os.path.exists(os.path.join(out, "site", "matrix.html"))
+
+
 def test_portfolio_probe_registry_is_populated():
     fact_names = {n for n, _ in FACT_PROBES}
     report_names = {n for n, _ in REPORT_PROBES}
