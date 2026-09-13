@@ -423,6 +423,26 @@ def cmd_serve(args):
     return 0
 
 
+def cmd_matrix(args):
+    """Run the six-stage capability pipeline (the new engine) -> capability matrix.
+
+    Thin front door over pipeline.run so the unified CLI exposes both the legacy
+    redundancy map (`run`) and the new capability matrix (`matrix`).
+    """
+    from . import pipeline as pipeline_mod
+    from .core.interfaces import PipelineConfig
+    cfg = PipelineConfig(
+        root=args.root or DEFAULT_REPOS,
+        out=args.out,
+        semantic=not getattr(args, "no_semantic", False),
+        remediate=getattr(args, "remediate", False),
+        inventory=getattr(args, "inventory", None),
+        verbose=getattr(args, "verbose", False),
+    )
+    pipeline_mod.run(cfg)
+    return 0
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="convergence_factory")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -501,6 +521,15 @@ def main(argv=None):
     srv.add_argument("--port", type=int, default=8080, help="port to serve on (default: 8080)")
     srv.add_argument("--no-browser", action="store_true", help="do not auto-open the browser")
     srv.set_defaults(func=cmd_serve)
+
+    mx = sub.add_parser("matrix", help="six-stage capability pipeline -> capability matrix (new engine)")
+    mx.add_argument("root", nargs="?", default=None)
+    mx.add_argument("--out", default=DEFAULT_OUT)
+    mx.add_argument("--no-semantic", action="store_true", help="skip the semantic recall + judge stage")
+    mx.add_argument("--remediate", action="store_true", help="also generate ratchets + rewrite recipes")
+    mx.add_argument("--inventory", default=None, help="path to GitLab inventory JSON")
+    mx.add_argument("-v", "--verbose", action="store_true", help="enable verbose debug logging")
+    mx.set_defaults(func=cmd_matrix)
 
     args = p.parse_args(argv)
     return args.func(args)
