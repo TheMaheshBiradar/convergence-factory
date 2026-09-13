@@ -1,0 +1,24 @@
+Convergence Factory — Proprietary Software License
+Copyright (c) 2026 The Convergence Factory project owner. All rights reserved.
+
+This software and its source code are proprietary and confidential. They are
+licensed, not sold, to authorized delivery partners solely for use under a
+separate written agreement with the project owner.
+
+Permitted, for an authorized partner under that agreement:
+  - internal use to analyze the partner's own or its clients' repositories;
+  - modification and extension for that internal use (e.g. new language plugins).
+
+Not permitted without prior written consent of the project owner:
+  - redistribution, sublicensing, or disclosure of the source code to any third
+    party outside the agreement;
+  - use of the name or branding to represent an unrelated product.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY.
+
+NOTE FOR HANDOVER: this is a template proprietary notice. Replace the copyright
+holder with the correct legal entity and confirm the final terms with your legal
+counsel before distributing to partners.

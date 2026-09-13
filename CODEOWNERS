@@ -1,0 +1,6 @@
+# Default owner for review. Partners: replace with your team handles.
+*                       @TheMaheshBiradar
+
+# The analytical core is the stable contract — review carefully.
+/src/convergence_factory/core/        @TheMaheshBiradar
+/.github/                             @TheMaheshBiradar
