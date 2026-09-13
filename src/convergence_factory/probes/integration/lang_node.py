@@ -34,9 +34,12 @@ except Exception:                       # pragma: no cover
     _TS_JS = False
 
 
-def _excluded(path: str) -> bool:
-    parts = set(os.path.normpath(path).split(os.sep))
-    return any(is_ignored_dir(p) for p in parts)
+def _excluded(path: str, repo_path: str = None) -> bool:
+    # Only consider path components INSIDE the repo, never the system prefix above
+    # it: a repo cloned under /tmp/... must not be excluded just because 'tmp' is
+    # an ignored dir name (this is why CI on Linux differed from macOS).
+    rel = os.path.relpath(path, repo_path) if repo_path else os.path.basename(path)
+    return any(is_ignored_dir(p) for p in rel.split(os.sep))
 
 
 def _find_package_jsons(repo_path: str) -> List[str]:
@@ -46,7 +49,7 @@ def _find_package_jsons(repo_path: str) -> List[str]:
     if os.path.exists(root_pkg):
         found.append(root_pkg)
     for p in walk_files(repo_path, (".json",)):
-        if os.path.basename(p) == "package.json" and not _excluded(p):
+        if os.path.basename(p) == "package.json" and not _excluded(p, repo_path):
             if p not in found:
                 found.append(p)
     return found
@@ -64,7 +67,7 @@ _IMPORT_RE = re.compile(r'''(?:import\s+.*?from\s+['"]([^'"]+)['"]|require\s*\(\
 
 def _coupling(repo_path: str) -> float:
     """Internal import graph density across local JS/TS modules."""
-    files = [f for f in walk_files(repo_path, _NODE_EXTS) if not _excluded(f)]
+    files = [f for f in walk_files(repo_path, _NODE_EXTS) if not _excluded(f, repo_path)]
     n = len(files)
     if n <= 1:
         return 0.0
@@ -108,7 +111,7 @@ class NodePlugin(LanguagePlugin):
 
     def detect(self, repo_path: str) -> Optional[dict]:
         pkg_files = _find_package_jsons(repo_path)
-        node_files = [f for f in walk_files(repo_path, _NODE_EXTS) if not _excluded(f)]
+        node_files = [f for f in walk_files(repo_path, _NODE_EXTS) if not _excluded(f, repo_path)]
         if not pkg_files and not node_files:
             return None
         claims = ["javascript"]
@@ -166,7 +169,7 @@ class NodePlugin(LanguagePlugin):
             except Exception:
                 pass
 
-        files = [f for f in walk_files(repo_path, _NODE_EXTS) if not _excluded(f)]
+        files = [f for f in walk_files(repo_path, _NODE_EXTS) if not _excluded(f, repo_path)]
         has_kafka_pkg = "kafkajs" in pkg_deps
         import_edges: Set[Tuple[str, str]] = set()
         file_stems = {os.path.splitext(os.path.relpath(f, repo_path))[0].replace("\\", "/"): f
