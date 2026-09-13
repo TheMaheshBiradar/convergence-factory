@@ -26,7 +26,43 @@ def _esc(s) -> str:
     return html.escape(str(s))
 
 
-def render(caps: List[Capability], out_dir: str, max_cols: int = 40) -> dict:
+def _convergence_section(conv) -> str:
+    if not conv:
+        return ""
+    rows = []
+    for p in conv.get("capability_plans", [])[:40]:
+        frm = ", ".join(_esc(s.split(":")[0]) for s in p["migrate_from"]) or "&mdash;"
+        rows.append(
+            f'<tr><td><span class="play p-{p["play"].lower()}">{p["play"]}</span></td>'
+            f'<td>{_esc(p["dimension"])}</td>'
+            f'<td><b>{_esc(p["label"])}</b><div class="tgt">{_esc(p["target"])}</div></td>'
+            f'<td class="canon">{_esc(p["canonical"].split(":")[0])}</td>'
+            f'<td class="from">{frm}</td></tr>')
+    for tp in conv.get("tech_plans", [])[:20]:
+        frm = ", ".join(_esc(x) for x in tp["migrate_from_libs"]) or "&mdash;"
+        rows.append(
+            '<tr><td><span class="play p-standardize">STD</span></td><td>tech</td>'
+            f'<td><b>{_esc(tp["category"])}</b><div class="tgt">{_esc(tp["target"])}</div></td>'
+            f'<td class="canon">{_esc(tp["canonical"])}</td><td class="from">{frm}</td></tr>')
+    if not rows:
+        return ""
+    r = conv.get("rollup", {})
+    roll = (f'{r.get("duplicate_capabilities", 0)} duplicate capabilities &rarr; '
+            f'{r.get("canonical_targets", 0)} canonical targets + '
+            f'{r.get("new_shared_components", 0)} new shared components &middot; '
+            f'{r.get("modules_to_migrate", 0)} modules to migrate &middot; '
+            f'{r.get("tech_standardizations", 0)} tech standardizations')
+    return ('<section class="conv"><h2>Convergence plan '
+            '<span class="count">unify into this</span></h2>'
+            f'<p class="roll">{roll}</p>'
+            '<div class="scroll"><table><thead><tr><th>Play</th><th>Dim</th>'
+            '<th>Capability &rarr; unified target</th><th>Canonical</th>'
+            '<th>Converge from</th></tr></thead>'
+            f'<tbody>{"".join(rows)}</tbody></table></div></section>')
+
+
+def render(caps: List[Capability], out_dir: str, max_cols: int = 40,
+           convergence=None) -> dict:
     site = os.path.join(out_dir, "site")
     os.makedirs(site, exist_ok=True)
 
@@ -75,9 +111,10 @@ def render(caps: List[Capability], out_dir: str, max_cols: int = 40) -> dict:
     dims_present = [d for d in _DIM_ORDER if by_dim.get(d)]
     total_caps = len(caps)
     total_dupe_modules = len({m for c in caps for m in c.module_ids})
+    body = _convergence_section(convergence) + \
+        ("".join(sections) or "<p>No shared capabilities found.</p>")
     doc = _TEMPLATE.format(
-        sections="".join(sections) or "<p>No shared capabilities found.</p>",
-        total_caps=total_caps, dims=len(dims_present),
+        sections=body, total_caps=total_caps, dims=len(dims_present),
         dupe_modules=total_dupe_modules)
     path = os.path.join(site, "matrix.html")
     with open(path, "w", encoding="utf-8") as fh:
@@ -129,6 +166,11 @@ _TEMPLATE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
   .p-retire{{color:#fff;background:var(--accent);border-color:var(--accent)}}
   .p-standardize{{color:var(--accent)}}
   .trunc{{color:var(--muted);font-size:.75rem;font-family:var(--mono);margin:.4rem 0 0}}
+  section.conv{{margin-bottom:2.4rem}}
+  .conv .roll{{font-family:var(--mono);font-size:.78rem;color:var(--muted);margin:.2rem 0 .8rem}}
+  .conv td{{text-align:left}} .conv .tgt{{font-size:.72rem;color:var(--muted);margin-top:.15rem}}
+  .conv td.canon{{font-family:var(--mono);font-weight:700;color:var(--accent)}}
+  .conv td.from{{font-family:var(--mono);font-size:.72rem;color:var(--muted)}}
 </style></head><body>
   <h1>Capability <span>Matrix</span></h1>
   <p class="sub">Modules &times; shared capabilities, per dimension. A column with &ge;2 filled cells is a duplication finding. Cell = direction (P/C/R/W/S/~), colour = confidence tier.</p>
