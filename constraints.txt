@@ -1,0 +1,9 @@
+# Pinned, verified dependency set for reproducible delivery to partners.
+# The analytical CORE needs none of these (stdlib only); they sharpen the probe
+# backends. Pinning matters: an unpinned tree-sitter once broke CI on Linux.
+# Install:  pip install -r constraints.txt
+sqlglot==30.18.0
+pyyaml==6.0.3
+tree_sitter==0.26.0
+tree_sitter_java==0.23.5
+tree_sitter_javascript==0.25.0
